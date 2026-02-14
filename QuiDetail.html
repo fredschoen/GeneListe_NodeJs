@@ -211,6 +211,16 @@
         input.addEventListener('input', () => {
           input.value = input.value.replace(/\\D+/g, '').slice(0, 2);
         });
+      } else if (fieldName === 'S') {
+        input.maxLength = 1;
+        input.placeholder = 'M/F';
+        input.pattern = '[MF]';
+        input.style.width = '40px';
+        input.addEventListener('keydown', enforceSexKey);
+        input.addEventListener('paste', enforceSexPaste);
+        input.addEventListener('input', () => {
+          input.value = normalizeSexValue(input.value);
+        });
       }
     }
 
@@ -234,6 +244,27 @@
       e.target.value = value.slice(0, start) + insert + value.slice(end);
       const pos = start + insert.length;
       e.target.setSelectionRange(pos, pos);
+      e.target.dispatchEvent(new Event('input'));
+    }
+
+    function normalizeSexValue(value) {
+      const normalized = (value ?? '').toString().toUpperCase().replace(/[^MF]/g, '');
+      return normalized.slice(0, 1);
+    }
+
+    function enforceSexKey(e) {
+      const allowed = ['Backspace', 'Delete', 'Tab', 'ArrowLeft', 'ArrowRight', 'Home', 'End'];
+      if (allowed.includes(e.key)) return;
+      if (!/^[mMfF]$/.test(e.key)) {
+        e.preventDefault();
+      }
+    }
+
+    function enforceSexPaste(e) {
+      e.preventDefault();
+      const pasted = (e.clipboardData || window.clipboardData).getData('text') || '';
+      const value = normalizeSexValue(pasted);
+      e.target.value = value;
       e.target.dispatchEvent(new Event('input'));
     }
   </script>

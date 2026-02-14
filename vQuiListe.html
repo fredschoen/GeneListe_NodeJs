@@ -16,6 +16,14 @@
 <body>
   <h1>Liste des entrées (vue)</h1>
   <div id="status">Chargement...</div>
+  <div style="margin:0.6rem 0; display:flex; gap:0.5rem; flex-wrap:wrap;">
+    <input id="filter-gene" type="text" placeholder="Filtre Gene (contient)" />
+    <input id="filter-nom" type="text" placeholder="Filtre début Nom" />
+    <input id="filter-prenom" type="text" placeholder="Filtre début Prenom" />
+    <input id="filter-s" type="text" placeholder="Filtre S (M/F)" />
+    <input id="filter-naiss-start" type="text" placeholder="Naiss_AAAA début" />
+    <input id="filter-naiss-end" type="text" placeholder="Naiss_AAAA fin" />
+  </div>
   <table aria-live="polite" id="table" hidden>
     <thead></thead>
     <tbody></tbody>
@@ -25,6 +33,12 @@
   <script src="Qui.js"></script>
   <script>
     const statusEl = document.getElementById('status');
+    const filterGeneInput = document.getElementById('filter-gene');
+    const filterNomInput = document.getElementById('filter-nom');
+    const filterPrenomInput = document.getElementById('filter-prenom');
+    const filterSInput = document.getElementById('filter-s');
+    const filterNaissStartInput = document.getElementById('filter-naiss-start');
+    const filterNaissEndInput = document.getElementById('filter-naiss-end');
     const traceEl = document.getElementById('trace');
     const table = document.getElementById('table');
     const thead = table.querySelector('thead');
@@ -32,11 +46,45 @@
     let dataset = { headers: [], rows: [] };
     let sortKey = null;
     let sortAsc = true;
+    let filters = { gene: '', nom: '', prenom: '', s: '', naissStart: '', naissEnd: '' };
 
     function trace(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
       console.log(line);
       //traceEl.textContent = `${line}\n${traceEl.textContent}`;
+    }
+
+    function setupFilters() {
+      const onFilterChange = () => {
+        filters = {
+          gene: normalizeFilter(filterGeneInput.value),
+          nom: normalizeFilter(filterNomInput.value),
+          prenom: normalizeFilter(filterPrenomInput.value),
+          s: normalizeSexValue(filterSInput.value),
+          naissStart: normalizeYearFilter(filterNaissStartInput.value),
+          naissEnd: normalizeYearFilter(filterNaissEndInput.value)
+        };
+        render(dataset.headers, dataset.rows);
+      };
+      filterGeneInput.addEventListener('input', onFilterChange);
+      filterNomInput.addEventListener('input', onFilterChange);
+      filterPrenomInput.addEventListener('input', onFilterChange);
+      filterSInput.addEventListener('input', onFilterChange);
+      filterNaissStartInput.addEventListener('input', onFilterChange);
+      filterNaissEndInput.addEventListener('input', onFilterChange);
+    }
+
+    function normalizeFilter(value) {
+      return (value ?? '').toString().trim().toLowerCase();
+    }
+
+    function normalizeYearFilter(value) {
+      return (value ?? '').toString().replace(/\D+/g, '').slice(0, 4);
+    }
+
+    function normalizeSexValue(value) {
+      const normalized = (value ?? '').toString().toUpperCase().replace(/[^MF]/g, '');
+      return normalized.slice(0, 1);
     }
 
     function render(headers, rows) {
@@ -70,7 +118,8 @@
       trHead.appendChild(thAction);
       thead.appendChild(trHead);
 
-      const displayRows = applySort(rows);
+      const filteredRows = applyFilters(rows, headers);
+      const displayRows = applySort(filteredRows);
 
       displayRows.forEach(row => {
         const tr = document.createElement('tr');
@@ -107,6 +156,31 @@
         return sortAsc ? cmp : -cmp;
       });
       return arr;
+    }
+
+    function applyFilters(rows, headers) {
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      const nomKey = headers.find(h => h.toLowerCase() === 'nom');
+      const prenomKey = headers.find(h => h.toLowerCase() === 'prenom');
+      const sKey = headers.find(h => h.toLowerCase() === 's');
+      const naissKey = headers.find(h => h.toLowerCase() === 'naiss_aaaa');
+      const startYear = filters.naissStart ? Number(filters.naissStart) : null;
+      const endYear = filters.naissEnd ? Number(filters.naissEnd) : null;
+      return rows.filter(row => {
+        if (filters.gene && !normalizeFilter(row[geneKey]).includes(filters.gene)) return false;
+        if (filters.nom && !normalizeFilter(row[nomKey]).startsWith(filters.nom)) return false;
+        if (filters.prenom && !normalizeFilter(row[prenomKey]).startsWith(filters.prenom)) return false;
+        if (filters.s && normalizeSexValue(row[sKey]) !== filters.s) return false;
+        if (startYear !== null || endYear !== null) {
+          const yearValue = normalizeYearFilter(row[naissKey]);
+          if (!yearValue) return false;
+          const year = Number(yearValue);
+          if (!Number.isFinite(year)) return false;
+          if (startYear !== null && year < startYear) return false;
+          if (endYear !== null && year > endYear) return false;
+        }
+        return true;
+      });
     }
 
     function toggleSort(key) {
@@ -182,11 +256,13 @@
       return true;
     }
 
+    setupFilters();
     if (!loadFromJs()) {
       loadData();
     }
   </script>
 </body>
 </html>
+
 
 

@@ -21,6 +21,14 @@
   <button id="rerender-btn" disabled>Rafraîchir</button>
   <button id="save-btn" disabled>Enregistrer (modifier)</button>
   <button id="js-btn" disabled>Transformer CSV en JS</button>
+  <div style="margin:0.6rem 0; display:flex; gap:0.5rem; flex-wrap:wrap;">
+    <input id="filter-gene" type="text" placeholder="Filtre Gene (contient)" />
+    <input id="filter-nom" type="text" placeholder="Filtre début Nom" />
+    <input id="filter-prenom" type="text" placeholder="Filtre début Prenom" />
+    <input id="filter-s" type="text" placeholder="Filtre S (M/F)" />
+    <input id="filter-naiss-start" type="text" placeholder="Naiss_AAAA début" />
+    <input id="filter-naiss-end" type="text" placeholder="Naiss_AAAA fin" />
+  </div>
   <table aria-live="polite" id="table" hidden>
     <thead></thead>
     <tbody></tbody>
@@ -37,6 +45,12 @@
     const rerenderBtn = document.getElementById('rerender-btn');
     const saveBtn = document.getElementById('save-btn');
     const jsBtn = document.getElementById('js-btn');
+    const filterGeneInput = document.getElementById('filter-gene');
+    const filterNomInput = document.getElementById('filter-nom');
+    const filterPrenomInput = document.getElementById('filter-prenom');
+    const filterSInput = document.getElementById('filter-s');
+    const filterNaissStartInput = document.getElementById('filter-naiss-start');
+    const filterNaissEndInput = document.getElementById('filter-naiss-end');
     const traceToggleBtn = document.getElementById('trace-toggle-btn');
     const table = document.getElementById('table');
     const thead = table.querySelector('thead');
@@ -44,6 +58,7 @@
     let dataset = { headers: [], rows: [] };
     let sortKey = null;
     let sortAsc = true;
+    let filters = { gene: '', nom: '', prenom: '', s: '', naissStart: '', naissEnd: '' };
 
     function trace(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
@@ -59,7 +74,41 @@
       });
     }
 
+    function setupFilters() {
+      const onFilterChange = () => {
+        filters = {
+          gene: normalizeFilter(filterGeneInput.value),
+          nom: normalizeFilter(filterNomInput.value),
+          prenom: normalizeFilter(filterPrenomInput.value),
+          s: normalizeSexValue(filterSInput.value),
+          naissStart: normalizeYearFilter(filterNaissStartInput.value),
+          naissEnd: normalizeYearFilter(filterNaissEndInput.value)
+        };
+        render(dataset.headers, dataset.rows);
+      };
+      filterGeneInput.addEventListener('input', onFilterChange);
+      filterNomInput.addEventListener('input', onFilterChange);
+      filterPrenomInput.addEventListener('input', onFilterChange);
+      filterSInput.addEventListener('input', onFilterChange);
+      filterNaissStartInput.addEventListener('input', onFilterChange);
+      filterNaissEndInput.addEventListener('input', onFilterChange);
+    }
+
+    function normalizeFilter(value) {
+      return (value ?? '').toString().trim().toLowerCase();
+    }
+
+    function normalizeYearFilter(value) {
+      return (value ?? '').toString().replace(/\D+/g, '').slice(0, 4);
+    }
+
+    function normalizeSexValue(value) {
+      const normalized = (value ?? '').toString().toUpperCase().replace(/[^MF]/g, '');
+      return normalized.slice(0, 1);
+    }
+
     setupTraceToggle();
+    setupFilters();
     trace('QuiListe: script chargé');
     trace(`Contexte: url=${window.location.href}`);
     trace(`Support fetch: ${typeof fetch}`);
@@ -104,7 +153,8 @@
       trHead.appendChild(thAction);
       thead.appendChild(trHead);
 
-      const displayRows = applySort(rows);
+      const filteredRows = applyFilters(rows, headers);
+      const displayRows = applySort(filteredRows);
 
       displayRows.forEach(row => {
         const tr = document.createElement('tr');
@@ -162,6 +212,31 @@
       return arr;
     }
 
+    function applyFilters(rows, headers) {
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      const nomKey = headers.find(h => h.toLowerCase() === 'nom');
+      const prenomKey = headers.find(h => h.toLowerCase() === 'prenom');
+      const sKey = headers.find(h => h.toLowerCase() === 's');
+      const naissKey = headers.find(h => h.toLowerCase() === 'naiss_aaaa');
+      const startYear = filters.naissStart ? Number(filters.naissStart) : null;
+      const endYear = filters.naissEnd ? Number(filters.naissEnd) : null;
+      return rows.filter(row => {
+        if (filters.gene && !normalizeFilter(row[geneKey]).includes(filters.gene)) return false;
+        if (filters.nom && !normalizeFilter(row[nomKey]).startsWith(filters.nom)) return false;
+        if (filters.prenom && !normalizeFilter(row[prenomKey]).startsWith(filters.prenom)) return false;
+        if (filters.s && normalizeSexValue(row[sKey]) !== filters.s) return false;
+        if (startYear !== null || endYear !== null) {
+          const yearValue = normalizeYearFilter(row[naissKey]);
+          if (!yearValue) return false;
+          const year = Number(yearValue);
+          if (!Number.isFinite(year)) return false;
+          if (startYear !== null && year < startYear) return false;
+          if (endYear !== null && year > endYear) return false;
+        }
+        return true;
+      });
+    }
+
     function toggleSort(key) {
       if (sortKey === key) {
         sortAsc = !sortAsc;
@@ -195,6 +270,16 @@
         input.addEventListener('input', () => {
           input.value = input.value.replace(/\\D+/g, '').slice(0, 2);
         });
+      } else if (fieldName === 'S') {
+        input.maxLength = 1;
+        input.placeholder = 'M/F';
+        input.pattern = '[MF]';
+        input.style.width = '40px';
+        input.addEventListener('keydown', enforceSexKey);
+        input.addEventListener('paste', enforceSexPaste);
+        input.addEventListener('input', () => {
+          input.value = normalizeSexValue(input.value);
+        });
       }
     }
 
@@ -218,6 +303,27 @@
       e.target.value = value.slice(0, start) + insert + value.slice(end);
       const pos = start + insert.length;
       e.target.setSelectionRange(pos, pos);
+      e.target.dispatchEvent(new Event('input'));
+    }
+
+    function normalizeSexValue(value) {
+      const normalized = (value ?? '').toString().toUpperCase().replace(/[^MF]/g, '');
+      return normalized.slice(0, 1);
+    }
+
+    function enforceSexKey(e) {
+      const allowed = ['Backspace', 'Delete', 'Tab', 'ArrowLeft', 'ArrowRight', 'Home', 'End'];
+      if (allowed.includes(e.key)) return;
+      if (!/^[mMfF]$/.test(e.key)) {
+        e.preventDefault();
+      }
+    }
+
+    function enforceSexPaste(e) {
+      e.preventDefault();
+      const pasted = (e.clipboardData || window.clipboardData).getData('text') || '';
+      const value = normalizeSexValue(pasted);
+      e.target.value = value;
       e.target.dispatchEvent(new Event('input'));
     }
 
@@ -404,5 +510,6 @@
   </script>
 </body>
 </html>
+
 
 
