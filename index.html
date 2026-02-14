@@ -13,5 +13,24 @@
   <h1>GeneListe</h1>
   <p>Consulter la liste des entr�es du fichier CSV.</p>
   <button onclick="window.open('QuiListe.html', '_blank')">Ouvrir la liste</button>
+  <button id="trace-toggle-btn" type="button">Afficher la trace</button>
+  <pre id="trace" hidden style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:200px;overflow:auto;"></pre>
+  <script>
+    const traceToggleBtn = document.getElementById('trace-toggle-btn');
+    const traceEl = document.getElementById('trace');
+
+    function trace(message) {
+      const line = `[${new Date().toISOString()}] ${message}`;
+      console.log(line);
+      traceEl.textContent = `${line}\n${traceEl.textContent}`;
+    }
+
+    traceToggleBtn.addEventListener('click', () => {
+      traceEl.hidden = !traceEl.hidden;
+      traceToggleBtn.textContent = traceEl.hidden ? 'Afficher la trace' : 'Masquer la trace';
+    });
+
+    trace('Page accueil chargée');
+  </script>
 </body>
 </html>

@@ -36,15 +36,21 @@
     function trace(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
       console.log(line);
-      traceEl.textContent = `${line}\n${traceEl.textContent}`;
+      //traceEl.textContent = `${line}\n${traceEl.textContent}`;
     }
 
     function render(headers, rows) {
       trace('render appelée');
       thead.innerHTML = '';
       tbody.innerHTML = '';
+      const idKey = headers.find(h => h.toLowerCase() === 'id');
+      const visibleHeaders = headers.filter(h => h !== idKey);
+      if ((!sortKey || !visibleHeaders.includes(sortKey)) && visibleHeaders.length) {
+        sortKey = visibleHeaders[0];
+        sortAsc = true;
+      }
       const trHead = document.createElement('tr');
-      headers.forEach(h => {
+      visibleHeaders.forEach(h => {
         const th = document.createElement('th');
         const btn = document.createElement('button');
         btn.textContent = h;
@@ -64,12 +70,11 @@
       trHead.appendChild(thAction);
       thead.appendChild(trHead);
 
-      const idKey = headers.find(h => h.toLowerCase() === 'id');
       const displayRows = applySort(rows);
 
       displayRows.forEach(row => {
         const tr = document.createElement('tr');
-        headers.forEach(h => {
+        visibleHeaders.forEach(h => {
           const td = document.createElement('td');
           td.textContent = row[h] ?? '';
           applyWidth(h, td);
@@ -183,3 +188,5 @@
   </script>
 </body>
 </html>
+
+

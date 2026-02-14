@@ -17,10 +17,11 @@
   <div id="status">Chargement...</div>
   <button id="save-btn" disabled>Enregistrer</button>
   <button id="delete-btn" class="danger" disabled>Supprimer</button>
-  <pre id="trace" style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:200px;overflow:auto;"></pre>
   <table id="detail-table" hidden>
     <tbody></tbody>
   </table>
+  <button id="trace-toggle-btn" type="button">Afficher la trace</button>
+  <pre id="trace" hidden style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:200px;overflow:auto;"></pre>
 
   <script>
     const params = new URLSearchParams(window.location.search);
@@ -28,6 +29,7 @@
     const statusEl = document.getElementById('status');
     const saveBtn = document.getElementById('save-btn');
     const deleteBtn = document.getElementById('delete-btn');
+    const traceToggleBtn = document.getElementById('trace-toggle-btn');
     const traceEl = document.getElementById('trace');
     const table = document.getElementById('detail-table');
     const tbody = table.querySelector('tbody');
@@ -41,6 +43,15 @@
       traceEl.textContent = `${line}\n${traceEl.textContent}`;
     }
 
+    function setupTraceToggle() {
+      traceToggleBtn.textContent = traceEl.hidden ? 'Afficher la trace' : 'Masquer la trace';
+      traceToggleBtn.addEventListener('click', () => {
+        traceEl.hidden = !traceEl.hidden;
+        traceToggleBtn.textContent = traceEl.hidden ? 'Afficher la trace' : 'Masquer la trace';
+      });
+    }
+
+    setupTraceToggle();
     trace('QuiDetail: script chargé');
     trace(`URL=${window.location.href}`);
 
@@ -48,23 +59,20 @@
       tbody.innerHTML = '';
       saveBtn.disabled = false;
       deleteBtn.disabled = false;
-      headers.forEach((h, idx) => {
+      const visibleHeaders = headers.filter(h => h !== idKey);
+      visibleHeaders.forEach((h, idx) => {
         const tr = document.createElement('tr');
         const th = document.createElement('th');
         const td = document.createElement('td');
         th.textContent = h;
-        if (idKey && h === idKey) {
-          td.textContent = row[h] ?? '';
-        } else {
-          const input = document.createElement('input');
-          input.type = 'text';
-          input.value = row[h] ?? '';
-          applyDigitConstraints(h, input);
-          input.addEventListener('change', () => {
-            updateField(row[idKey], h, input.value, td);
-          });
-          td.appendChild(input);
-        }
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = row[h] ?? '';
+        applyDigitConstraints(h, input);
+        input.addEventListener('change', () => {
+          updateField(row[idKey], h, input.value, td);
+        });
+        td.appendChild(input);
         tr.appendChild(th);
         tr.appendChild(td);
         tbody.appendChild(tr);
@@ -231,3 +239,5 @@
   </script>
 </body>
 </html>
+
+

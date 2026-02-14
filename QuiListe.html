@@ -25,7 +25,8 @@
     <thead></thead>
     <tbody></tbody>
   </table>
-  <pre id="trace" style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:240px;overflow:auto;"></pre>
+  <button id="trace-toggle-btn" type="button">Afficher la trace</button>
+  <pre id="trace" hidden style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:240px;overflow:auto;"></pre>
 
   <script src="Qui.js"></script>
   <script>
@@ -36,6 +37,7 @@
     const rerenderBtn = document.getElementById('rerender-btn');
     const saveBtn = document.getElementById('save-btn');
     const jsBtn = document.getElementById('js-btn');
+    const traceToggleBtn = document.getElementById('trace-toggle-btn');
     const table = document.getElementById('table');
     const thead = table.querySelector('thead');
     const tbody = table.querySelector('tbody');
@@ -49,6 +51,15 @@
       traceEl.textContent = `${line}\n${traceEl.textContent}`;
     }
 
+    function setupTraceToggle() {
+      traceToggleBtn.textContent = traceEl.hidden ? 'Afficher la trace' : 'Masquer la trace';
+      traceToggleBtn.addEventListener('click', () => {
+        traceEl.hidden = !traceEl.hidden;
+        traceToggleBtn.textContent = traceEl.hidden ? 'Afficher la trace' : 'Masquer la trace';
+      });
+    }
+
+    setupTraceToggle();
     trace('QuiListe: script chargé');
     trace(`Contexte: url=${window.location.href}`);
     trace(`Support fetch: ${typeof fetch}`);
@@ -66,11 +77,17 @@
       trace('render appelée');
       thead.innerHTML = '';
       tbody.innerHTML = '';
+      const idKey = headers.find(h => h.toLowerCase() === 'id');
+      const visibleHeaders = headers.filter(h => h !== idKey);
+      if ((!sortKey || !visibleHeaders.includes(sortKey)) && visibleHeaders.length) {
+        sortKey = visibleHeaders[0];
+        sortAsc = true;
+      }
       const trHead = document.createElement('tr');
-      headers.forEach(h => {
+      visibleHeaders.forEach(h => {
         const th = document.createElement('th');
         const btn = document.createElement('button');
-        btn.textContent = h;
+        btn.textContent = formatHeaderLabel(h);
         btn.addEventListener('click', () => toggleSort(h));
         const img = document.createElement('img');
         if (sortKey === h) {
@@ -87,38 +104,33 @@
       trHead.appendChild(thAction);
       thead.appendChild(trHead);
 
-      const idKey = headers.find(h => h.toLowerCase() === 'id');
-
       const displayRows = applySort(rows);
 
       displayRows.forEach(row => {
         const tr = document.createElement('tr');
-        headers.forEach(h => {
+        visibleHeaders.forEach(h => {
           const td = document.createElement('td');
-          if (idKey && h === idKey) {
-            td.textContent = row[h] ?? '';
-          } else {
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.value = row[h] ?? '';
-            applyDigitConstraints(h, input);
-            input.dataset.field = h;
-            input.dataset.id = idKey ? row[idKey] : '';
-            input.addEventListener('change', () => {
-              if (!input.dataset.id) {
-                trace('Impossible de mettre à jour: id manquant');
-                return;
-              }
-              saveField(input.dataset.id, h, input.value, td);
-            });
-            td.appendChild(input);
-          }
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = row[h] ?? '';
+          applyDigitConstraints(h, input);
+          input.dataset.field = h;
+          input.dataset.id = idKey ? row[idKey] : '';
+          input.addEventListener('change', () => {
+            if (!input.dataset.id) {
+              trace('Impossible de mettre à jour: id manquant');
+              return;
+            }
+            saveField(input.dataset.id, h, input.value, td);
+          });
+          td.appendChild(input);
           tr.appendChild(td);
         });
         const tdAction = document.createElement('td');
         const btnDetail = document.createElement('button');
         btnDetail.textContent = 'Détail';
         btnDetail.addEventListener('click', () => {
+          if (!idKey) return;
           window.open(`QuiDetail.html?id=${encodeURIComponent(row[idKey])}`, '_blank');
         });
         tdAction.appendChild(btnDetail);
@@ -126,6 +138,14 @@
         tbody.appendChild(tr);
       });
       table.hidden = false;
+    }
+
+    function formatHeaderLabel(header) {
+      if (header === 'Naiss_MM') return '_MM';
+      if (header === 'Naiss_JJ') return '_JJ';
+      if (header === 'Deces_MM') return '_MM';
+      if (header === 'Deces_JJ') return '_JJ';
+      return header;
     }
 
     function applySort(rows) {
@@ -384,3 +404,5 @@
   </script>
 </body>
 </html>
+
+
