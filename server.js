@@ -110,6 +110,36 @@ app.post('/api/save', (req, res) => {
   res.json({ ok: true, saved: rows.length, path: CSV_PATH });
 });
 
+app.post('/api/export/js', (req, res) => {
+  try {
+    const jsPath = path.join(__dirname, 'Qui.js');
+    const payload = {
+      headers,
+      rows,
+    };
+    const content =
+`// Généré automatiquement depuis ${path.relative(__dirname, CSV_PATH)} le ${new Date().toISOString()}
+(function(){
+  const headers = ${JSON.stringify(payload.headers, null, 2)};
+  const rows = ${JSON.stringify(payload.rows, null, 2)};
+  window.renderJs = function(renderFn){
+    if (typeof renderFn === 'function') {
+      renderFn(headers, rows);
+    } else if (typeof window.render === 'function') {
+      window.render(headers, rows);
+    } else {
+      console.warn('Aucune fonction render disponible pour afficher les données JS.');
+    }
+  };
+})();`;
+    fs.writeFileSync(jsPath, content, 'utf8');
+    res.json({ ok: true, path: jsPath, headers: headers.length, rows: rows.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/reload', (req, res) => {
   loadCsv();
   res.json({ ok: true, headers, rows });

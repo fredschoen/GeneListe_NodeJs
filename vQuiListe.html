@@ -1,0 +1,185 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GeneListe - Vue Liste</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid red; padding: 0.4rem 0.6rem; text-align: left; }
+    th { background: blue; }
+    th button { all: unset; color: white; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+    th img { width: 14px; height: 14px; filter: invert(1); }
+  </style>
+</head>
+<body>
+  <h1>Liste des entrées (vue)</h1>
+  <div id="status">Chargement...</div>
+  <table aria-live="polite" id="table" hidden>
+    <thead></thead>
+    <tbody></tbody>
+  </table>
+  <pre id="trace" style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:240px;overflow:auto;"></pre>
+
+  <script src="Qui.js"></script>
+  <script>
+    const statusEl = document.getElementById('status');
+    const traceEl = document.getElementById('trace');
+    const table = document.getElementById('table');
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+    let dataset = { headers: [], rows: [] };
+    let sortKey = null;
+    let sortAsc = true;
+
+    function trace(message) {
+      const line = `[${new Date().toISOString()}] ${message}`;
+      console.log(line);
+      traceEl.textContent = `${line}\n${traceEl.textContent}`;
+    }
+
+    function render(headers, rows) {
+      trace('render appelée');
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+      const trHead = document.createElement('tr');
+      headers.forEach(h => {
+        const th = document.createElement('th');
+        const btn = document.createElement('button');
+        btn.textContent = h;
+        btn.addEventListener('click', () => toggleSort(h));
+        const img = document.createElement('img');
+        if (sortKey === h) {
+          img.src = sortAsc ? 'img/fleche_haut.svg' : 'img/fleche_bas.svg';
+        } else {
+          img.src = 'img/fleche_vide.svg';
+        }
+        btn.appendChild(img);
+        th.appendChild(btn);
+        trHead.appendChild(th);
+      });
+      const thAction = document.createElement('th');
+      thAction.textContent = 'Action';
+      trHead.appendChild(thAction);
+      thead.appendChild(trHead);
+
+      const idKey = headers.find(h => h.toLowerCase() === 'id');
+      const displayRows = applySort(rows);
+
+      displayRows.forEach(row => {
+        const tr = document.createElement('tr');
+        headers.forEach(h => {
+          const td = document.createElement('td');
+          td.textContent = row[h] ?? '';
+          applyWidth(h, td);
+          tr.appendChild(td);
+        });
+        const tdAction = document.createElement('td');
+        if (idKey && row[idKey]) {
+          const btnDetail = document.createElement('button');
+          btnDetail.textContent = 'Détail';
+          btnDetail.addEventListener('click', () => {
+            window.open(`vQuiDetail.html?id=${encodeURIComponent(row[idKey])}`, '_blank');
+          });
+          tdAction.appendChild(btnDetail);
+        }
+        tr.appendChild(tdAction);
+        tbody.appendChild(tr);
+      });
+      table.hidden = false;
+    }
+
+    function applySort(rows) {
+      if (!sortKey) return rows;
+      const arr = [...rows];
+      arr.sort((a, b) => {
+        const va = (a[sortKey] ?? '').toString();
+        const vb = (b[sortKey] ?? '').toString();
+        const na = Number(va), nb = Number(vb);
+        const bothNum = Number.isFinite(na) && Number.isFinite(nb);
+        const cmp = bothNum ? na - nb : va.localeCompare(vb, 'fr', { numeric: true, sensitivity: 'base' });
+        return sortAsc ? cmp : -cmp;
+      });
+      return arr;
+    }
+
+    function toggleSort(key) {
+      if (sortKey === key) {
+        sortAsc = !sortAsc;
+      } else {
+        sortKey = key;
+        sortAsc = true;
+      }
+      render(dataset.headers, dataset.rows);
+    }
+
+    function loadData(msg = 'Chargé.') {
+      statusEl.textContent = 'Chargement...';
+      fetch(csvPath())
+        .then(res => {
+          if (!res.ok) throw new Error('Echec de chargement: ' + res.status);
+          return res.text();
+        })
+        .then(text => {
+          const { headers, rows } = parseCSV(text);
+          dataset = { headers, rows };
+          render(dataset.headers, dataset.rows);
+          statusEl.textContent = msg;
+          trace(`CSV: ${dataset.rows.length} lignes reçues`);
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur CSV: ' + err.message);
+        });
+    }
+
+    function parseCSV(text) {
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+      if (!lines.length) return { headers: [], rows: [] };
+      const delimiter = lines[0].includes(';') ? ';' : '\t';
+      const headers = lines[0].split(delimiter).map(h => h.trim());
+      const rows = lines.slice(1).map(line => {
+        const cells = line.split(delimiter).map(c => c.trim());
+        const row = {};
+        headers.forEach((h, i) => { row[h || `Col${i + 1}`] = cells[i] ?? ''; });
+        for (let j = headers.length; j < cells.length; j++) {
+          row[`Col${j + 1}`] = cells[j];
+        }
+        return row;
+      });
+      return { headers, rows };
+    }
+
+    function csvPath() {
+      return 'Data/Qui.csv';
+    }
+
+    function applyWidth(fieldName, td) {
+      if (fieldName === 'ID') {
+        td.style.width = '20px';
+      } else if (fieldName.endsWith('_AAAA')) {
+        td.style.width = '60px';
+      } else if (fieldName.endsWith('_MM') || fieldName.endsWith('_JJ')) {
+        td.style.width = '40px';
+      }
+    }
+
+    function loadFromJs() {
+      if (typeof window.renderJs !== 'function') return false;
+      statusEl.textContent = 'Chargement depuis Qui.js...';
+      trace('Chargement des données statiques Qui.js');
+      window.renderJs((headers, rows) => {
+        dataset = { headers, rows };
+        render(headers, rows);
+        statusEl.textContent = 'Affiché depuis Qui.js';
+      });
+      return true;
+    }
+
+    if (!loadFromJs()) {
+      loadData();
+    }
+  </script>
+</body>
+</html>

@@ -9,6 +9,8 @@
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid red; padding: 0.4rem 0.6rem; text-align: left; }
     th { background: blue; }
+    th button { all: unset; color: white; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+    th img { width: 14px; height: 14px; filter: invert(1); }
   </style>
 </head>
 <body>
@@ -18,12 +20,14 @@
   <button id="refresh-btn" disabled>Tout Annuler</button>
   <button id="rerender-btn" disabled>Rafraîchir</button>
   <button id="save-btn" disabled>Enregistrer (modifier)</button>
+  <button id="js-btn" disabled>Transformer CSV en JS</button>
   <table aria-live="polite" id="table" hidden>
     <thead></thead>
     <tbody></tbody>
   </table>
   <pre id="trace" style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:240px;overflow:auto;"></pre>
 
+  <script src="Qui.js"></script>
   <script>
     const statusEl = document.getElementById('status');
     const traceEl = document.getElementById('trace');
@@ -31,10 +35,13 @@
     const refreshBtn = document.getElementById('refresh-btn');
     const rerenderBtn = document.getElementById('rerender-btn');
     const saveBtn = document.getElementById('save-btn');
+    const jsBtn = document.getElementById('js-btn');
     const table = document.getElementById('table');
     const thead = table.querySelector('thead');
     const tbody = table.querySelector('tbody');
     let dataset = { headers: [], rows: [] };
+    let sortKey = null;
+    let sortAsc = true;
 
     function trace(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
@@ -62,7 +69,17 @@
       const trHead = document.createElement('tr');
       headers.forEach(h => {
         const th = document.createElement('th');
-        th.textContent = h;
+        const btn = document.createElement('button');
+        btn.textContent = h;
+        btn.addEventListener('click', () => toggleSort(h));
+        const img = document.createElement('img');
+        if (sortKey === h) {
+          img.src = sortAsc ? 'img/fleche_haut.svg' : 'img/fleche_bas.svg';
+        } else {
+          img.src = 'img/fleche_vide.svg';
+        }
+        btn.appendChild(img);
+        th.appendChild(btn);
         trHead.appendChild(th);
       });
       const thAction = document.createElement('th');
@@ -72,7 +89,9 @@
 
       const idKey = headers.find(h => h.toLowerCase() === 'id');
 
-      rows.forEach(row => {
+      const displayRows = applySort(rows);
+
+      displayRows.forEach(row => {
         const tr = document.createElement('tr');
         headers.forEach(h => {
           const td = document.createElement('td');
@@ -107,6 +126,30 @@
         tbody.appendChild(tr);
       });
       table.hidden = false;
+    }
+
+    function applySort(rows) {
+      if (!sortKey) return rows;
+      const arr = [...rows];
+      arr.sort((a, b) => {
+        const va = (a[sortKey] ?? '').toString();
+        const vb = (b[sortKey] ?? '').toString();
+        const na = Number(va), nb = Number(vb);
+        const bothNum = Number.isFinite(na) && Number.isFinite(nb);
+        const cmp = bothNum ? na - nb : va.localeCompare(vb, 'fr', { numeric: true, sensitivity: 'base' });
+        return sortAsc ? cmp : -cmp;
+      });
+      return arr;
+    }
+
+    function toggleSort(key) {
+      if (sortKey === key) {
+        sortAsc = !sortAsc;
+      } else {
+        sortKey = key;
+        sortAsc = true;
+      }
+      render(dataset.headers, dataset.rows);
     }
 
     function applyDigitConstraints(fieldName, input) {
@@ -201,6 +244,7 @@
           refreshBtn.disabled = false;
           rerenderBtn.disabled = false;
           saveBtn.disabled = false;
+          jsBtn.disabled = false;
         })
         .catch(err => {
           console.error(err);
@@ -238,6 +282,33 @@
 
     rerenderBtn.addEventListener('click', () => {
       refreshDataAndRender('Affichage rafraîchi (données mémoire serveur).');
+    });
+
+    jsBtn.addEventListener('click', () => {
+      jsBtn.disabled = true;
+      statusEl.textContent = 'Génération de Qui.js...';
+      fetch('/api/export/js', { method: 'POST' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec export JS: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Export JS échoué');
+          statusEl.textContent = `Qui.js généré (${data.rows} lignes).`;
+          trace('Qui.js régénéré depuis le CSV serveur');
+          // Optionnel: charger les données du fichier généré
+          if (typeof window.renderJs === 'function') {
+            window.renderJs(render);
+            trace('Affichage avec données Qui.js');
+          }
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur export JS: ' + err.message);
+        })
+        .finally(() => {
+          jsBtn.disabled = false;
+        });
     });
 
     function refreshDataAndRender(successMsg) {

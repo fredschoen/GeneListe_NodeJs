@@ -1,0 +1,127 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GeneListe - Vue Détail</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    table { border-collapse: collapse; margin-top: 5px; }
+    th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+    th { background: #f3f3f3; }
+  </style>
+</head>
+<body>
+  <h1>Détail (vue)</h1>
+  <div id="status">Chargement...</div>
+  <table id="detail-table" hidden>
+    <tbody></tbody>
+  </table>
+  <pre id="trace" style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:200px;overflow:auto;">Trace debug:</pre>
+
+  <script src="Qui.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const requestedId = params.get('id');
+    const statusEl = document.getElementById('status');
+    const traceEl = document.getElementById('trace');
+    const table = document.getElementById('detail-table');
+    const tbody = table.querySelector('tbody');
+
+    function trace(message) {
+      const line = `[${new Date().toISOString()}] ${message}`;
+      console.log(line);
+      traceEl.textContent = `${line}\n${traceEl.textContent}`;
+    }
+
+    function render(headers, row) {
+      tbody.innerHTML = '';
+      headers.forEach(h => {
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        const td = document.createElement('td');
+        th.textContent = h;
+        td.textContent = row[h] ?? '';
+        tr.appendChild(th);
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      });
+      table.hidden = false;
+    }
+
+    function parseCSV(text) {
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+      if (!lines.length) return { headers: [], rows: [] };
+      const delimiter = lines[0].includes(';') ? ';' : '\t';
+      const headers = lines[0].split(delimiter).map(h => h.trim());
+      const rows = lines.slice(1).map(line => {
+        const cells = line.split(delimiter).map(c => c.trim());
+        const row = {};
+        headers.forEach((h, i) => { row[h || `Col${i + 1}`] = cells[i] ?? ''; });
+        for (let j = headers.length; j < cells.length; j++) {
+          row[`Col${j + 1}`] = cells[j];
+        }
+        return row;
+      });
+      return { headers, rows };
+    }
+
+    function findRow(id, data) {
+      const idKey = data.headers.find(h => h.toLowerCase() === 'id');
+      if (!idKey) return null;
+      return data.rows.find(r => r[idKey] === id) || null;
+    }
+
+    function loadFromCsv(path) {
+      statusEl.textContent = 'Chargement...';
+      fetch(path)
+        .then(res => {
+          if (!res.ok) throw new Error('Echec CSV: ' + res.status);
+          return res.text();
+        })
+        .then(text => {
+          const data = parseCSV(text);
+          const row = requestedId ? findRow(requestedId, data) : null;
+          if (!row) throw new Error(`Aucune entrée avec id=${requestedId}`);
+          statusEl.textContent = '';
+          render(data.headers, row);
+          trace(`CSV chargé (${data.rows.length} lignes)`);
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur CSV: ' + err.message);
+        });
+    }
+
+    if (!requestedId) {
+      statusEl.textContent = 'Aucun identifiant fourni (paramètre id manquant).';
+      trace('Paramètre id manquant');
+    } else {
+      if (!loadFromJs()) {
+        loadFromCsv(csvPath());
+      }
+    }
+
+    function csvPath() {
+      return 'Data/Qui.csv';
+    }
+
+    function loadFromJs() {
+      if (typeof window.renderJs !== 'function') return false;
+      statusEl.textContent = 'Chargement depuis Qui.js...';
+      trace('Chargement Qui.js');
+      window.renderJs((headers, rows) => {
+        const row = requestedId ? findRow(requestedId, { headers, rows }) : null;
+        if (!row) {
+          statusEl.textContent = `Aucune entrée id=${requestedId} dans Qui.js`;
+          trace('ID non trouvé dans Qui.js');
+          return;
+        }
+        render(headers, row);
+        statusEl.textContent = 'Affiché depuis Qui.js';
+      });
+      return true;
+    }
+  </script>
+</body>
+</html>
