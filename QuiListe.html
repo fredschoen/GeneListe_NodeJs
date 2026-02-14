@@ -1,0 +1,315 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GeneListe - Liste</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid red; padding: 0.4rem 0.6rem; text-align: left; }
+    th { background: blue; }
+  </style>
+</head>
+<body>
+  <h1>Liste des entrées</h1>
+  <div id="status">Chargement...</div>
+  <button id="add-btn" disabled>Ajouter</button>
+  <button id="refresh-btn" disabled>Tout Annuler</button>
+  <button id="rerender-btn" disabled>Rafraîchir</button>
+  <button id="save-btn" disabled>Enregistrer (modifier)</button>
+  <table aria-live="polite" id="table" hidden>
+    <thead></thead>
+    <tbody></tbody>
+  </table>
+  <pre id="trace" style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:240px;overflow:auto;"></pre>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const traceEl = document.getElementById('trace');
+    const addBtn = document.getElementById('add-btn');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const rerenderBtn = document.getElementById('rerender-btn');
+    const saveBtn = document.getElementById('save-btn');
+    const table = document.getElementById('table');
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+    let dataset = { headers: [], rows: [] };
+
+    function trace(message) {
+      const line = `[${new Date().toISOString()}] ${message}`;
+      console.log(line);
+      traceEl.textContent = `${line}\n${traceEl.textContent}`;
+    }
+
+    trace('QuiListe: script chargé');
+    trace(`Contexte: url=${window.location.href}`);
+    trace(`Support fetch: ${typeof fetch}`);
+
+    window.addEventListener('error', (event) => {
+      trace(`Erreur globale: ${event.message} @${event.filename}:${event.lineno}`);
+    });
+    window.addEventListener('unhandledrejection', (event) => {
+      trace(`Promesse rejetée non gérée: ${event.reason}`);
+    });
+
+    setTimeout(() => trace('Timer 0ms exécuté (boucle event OK)'), 0);
+
+    function render(headers, rows) {
+      trace('render appelée');
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+      const trHead = document.createElement('tr');
+      headers.forEach(h => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        trHead.appendChild(th);
+      });
+      const thAction = document.createElement('th');
+      thAction.textContent = 'Action';
+      trHead.appendChild(thAction);
+      thead.appendChild(trHead);
+
+      const idKey = headers.find(h => h.toLowerCase() === 'id');
+
+      rows.forEach(row => {
+        const tr = document.createElement('tr');
+        headers.forEach(h => {
+          const td = document.createElement('td');
+          if (idKey && h === idKey) {
+            td.textContent = row[h] ?? '';
+          } else {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = row[h] ?? '';
+            applyDigitConstraints(h, input);
+            input.dataset.field = h;
+            input.dataset.id = idKey ? row[idKey] : '';
+            input.addEventListener('change', () => {
+              if (!input.dataset.id) {
+                trace('Impossible de mettre à jour: id manquant');
+                return;
+              }
+              saveField(input.dataset.id, h, input.value, td);
+            });
+            td.appendChild(input);
+          }
+          tr.appendChild(td);
+        });
+        const tdAction = document.createElement('td');
+        const btnDetail = document.createElement('button');
+        btnDetail.textContent = 'Détail';
+        btnDetail.addEventListener('click', () => {
+          window.open(`QuiDetail.html?id=${encodeURIComponent(row[idKey])}`, '_blank');
+        });
+        tdAction.appendChild(btnDetail);
+        tr.appendChild(tdAction);
+        tbody.appendChild(tr);
+      });
+      table.hidden = false;
+    }
+
+    function applyDigitConstraints(fieldName, input) {
+      if (fieldName.endsWith('_AAAA')) {
+        input.maxLength = 4;
+        input.placeholder = 'AAAA';
+        input.inputMode = 'numeric';
+        input.pattern = '\\d{0,4}';
+        input.style.width = '60px';
+        input.addEventListener('keydown', enforceDigitKey);
+        input.addEventListener('paste', enforceDigitPaste);
+        input.addEventListener('input', () => {
+          input.value = input.value.replace(/\\D+/g, '').slice(0, 4);
+        });
+      } else if (fieldName.endsWith('_MM') || fieldName.endsWith('_JJ')) {
+        input.maxLength = 2;
+        input.placeholder = fieldName.endsWith('_MM') ? 'MM' : 'JJ';
+        input.inputMode = 'numeric';
+        input.pattern = '\\d{0,2}';
+        input.style.width = '40px';
+        input.addEventListener('keydown', enforceDigitKey);
+        input.addEventListener('paste', enforceDigitPaste);
+        input.addEventListener('input', () => {
+          input.value = input.value.replace(/\\D+/g, '').slice(0, 2);
+        });
+      }
+    }
+
+    function enforceDigitKey(e) {
+      const allowed = ['Backspace', 'Delete', 'Tab', 'ArrowLeft', 'ArrowRight', 'Home', 'End'];
+      if (allowed.includes(e.key)) return;
+      if (!/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+      }
+    }
+
+    function enforceDigitPaste(e) {
+      e.preventDefault();
+      const pasted = (e.clipboardData || window.clipboardData).getData('text') || '';
+      const digits = pasted.replace(/\\D+/g, '');
+      const max = e.target.maxLength > 0 ? e.target.maxLength : digits.length;
+      const insert = digits.slice(0, max);
+      const start = e.target.selectionStart ?? e.target.value.length;
+      const end = e.target.selectionEnd ?? e.target.value.length;
+      const value = e.target.value;
+      e.target.value = value.slice(0, start) + insert + value.slice(end);
+      const pos = start + insert.length;
+      e.target.setSelectionRange(pos, pos);
+      e.target.dispatchEvent(new Event('input'));
+    }
+
+    function saveField(id, field, value, cell) {
+      cell.classList.add('saving');
+      const idKey = dataset.headers.find(h => h.toLowerCase() === 'id');
+      fetch(`/api/row/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field, value })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Mise à jour échouée');
+          trace(`Champ ${field} de l'id ${id} mis à jour en mémoire`);
+          if (idKey) {
+            const row = dataset.rows.find(r => r[idKey] === id);
+            if (row) row[field] = value;
+          }
+        })
+        .catch(err => {
+          trace(`Erreur mise à jour id=${id}, champ=${field} : ${err.message}`);
+          statusEl.textContent = 'Erreur: ' + err.message;
+        })
+        .finally(() => {
+          cell.classList.remove('saving');
+        });
+    }
+
+    function loadData() {
+      trace('Début fetch API /api/data');
+      fetch('/api/data')
+        .then(res => {
+          if (!res.ok) throw new Error('Echec de chargement: ' + res.status);
+          trace('Réponse API OK, statut ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          dataset = data;
+          trace(`API: ${dataset.rows.length} lignes reçues`);
+          statusEl.textContent = '';
+          render(dataset.headers, dataset.rows);
+          addBtn.disabled = false;
+          refreshBtn.disabled = false;
+          rerenderBtn.disabled = false;
+          saveBtn.disabled = false;
+        })
+        .catch(err => {
+          console.error(err);
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur API: ' + err.message);
+        });
+    }
+
+    addBtn.addEventListener('click', () => {
+      addBtn.disabled = true;
+      statusEl.textContent = 'Ajout...';
+      fetch('/api/row', { method: 'POST' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec ajout: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Ajout échoué');
+          const idKey = dataset.headers.find(h => h.toLowerCase() === 'id');
+          if (idKey) {
+            dataset.rows.unshift(data.row);
+            render(dataset.headers, dataset.rows);
+            trace(`Nouvelle ligne ajoutée avec id=${data.row[idKey]}`);
+            statusEl.textContent = 'Nouvelle ligne ajoutée.';
+          }
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur ajout: ' + err.message);
+        })
+        .finally(() => {
+          addBtn.disabled = false;
+        });
+    });
+
+    rerenderBtn.addEventListener('click', () => {
+      refreshDataAndRender('Affichage rafraîchi (données mémoire serveur).');
+    });
+
+    function refreshDataAndRender(successMsg) {
+      statusEl.textContent = 'Rafraîchissement en cours...';
+      fetch('/api/data')
+        .then(res => {
+          if (!res.ok) throw new Error('Echec rafraîchir: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          dataset = data;
+          render(dataset.headers, dataset.rows);
+          statusEl.textContent = successMsg;
+          trace('Rafraîchir: données rechargées via /api/data');
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur rafraîchir: ' + err.message);
+        });
+    }
+
+    // Exposé pour les fenêtres détail afin de rafraîchir la liste après suppression
+    window.refreshFromDetail = () => refreshDataAndRender('Rafraîchi suite à une action dans le détail.');
+
+    refreshBtn.addEventListener('click', () => {
+      const ok = confirm("Confirmer l'annulation des modifications ?");
+      if (!ok) return;
+      refreshBtn.disabled = true;
+      statusEl.textContent = 'Rechargement...';
+      fetch('/api/reload', { method: 'POST' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec reload: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          dataset = data;
+          trace(`Reload: ${dataset.rows.length} lignes reçues`);
+          statusEl.textContent = 'Rechargé depuis CSV.';
+          render(dataset.headers, dataset.rows);
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur reload: ' + err.message);
+        })
+        .finally(() => {
+          refreshBtn.disabled = false;
+        });
+    });
+
+    saveBtn.addEventListener('click', () => {
+      saveBtn.disabled = true;
+      statusEl.textContent = 'Enregistrement...';
+      fetch('/api/save', { method: 'POST' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec sauvegarde: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Sauvegarde échouée');
+          statusEl.textContent = `Sauvegardé (${data.saved} lignes)`;
+          trace('Sauvegarde CSV réussie');
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur sauvegarde: ' + err.message);
+        })
+        .finally(() => {
+          saveBtn.disabled = false;
+        });
+    });
+
+    loadData();
+  </script>
+</body>
+</html>

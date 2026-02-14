@@ -1,0 +1,233 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GeneListe - Détail</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    table { border-collapse: collapse; margin-top: 5px; }
+    th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+    th { background: #f3f3f3; }
+    .danger { background: #ffefef; border: 1px solid #ff6b6b; color: #b00000; }
+  </style>
+</head>
+<body>
+  <h1>Détail de l'entrée</h1>
+  <div id="status">Chargement...</div>
+  <button id="save-btn" disabled>Enregistrer</button>
+  <button id="delete-btn" class="danger" disabled>Supprimer</button>
+  <pre id="trace" style="background:#f5f5f5;border:1px solid #ccc;padding:0.5rem;white-space:pre-wrap;max-height:200px;overflow:auto;"></pre>
+  <table id="detail-table" hidden>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const requestedId = params.get('id');
+    const statusEl = document.getElementById('status');
+    const saveBtn = document.getElementById('save-btn');
+    const deleteBtn = document.getElementById('delete-btn');
+    const traceEl = document.getElementById('trace');
+    const table = document.getElementById('detail-table');
+    const tbody = table.querySelector('tbody');
+    let headers = [];
+    let currentRow = {};
+    let idKey = null;
+
+    function trace(message) {
+      const line = `[${new Date().toISOString()}] ${message}`;
+      console.log(line);
+      traceEl.textContent = `${line}\n${traceEl.textContent}`;
+    }
+
+    trace('QuiDetail: script chargé');
+    trace(`URL=${window.location.href}`);
+
+    function render(headers, row) {
+      tbody.innerHTML = '';
+      saveBtn.disabled = false;
+      deleteBtn.disabled = false;
+      headers.forEach((h, idx) => {
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        const td = document.createElement('td');
+        th.textContent = h;
+        if (idKey && h === idKey) {
+          td.textContent = row[h] ?? '';
+        } else {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = row[h] ?? '';
+          applyDigitConstraints(h, input);
+          input.addEventListener('change', () => {
+            updateField(row[idKey], h, input.value, td);
+          });
+          td.appendChild(input);
+        }
+        tr.appendChild(th);
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      });
+      table.hidden = false;
+    }
+
+    function updateField(id, field, value, cell) {
+      if (!id) {
+        trace('ID manquant, mise à jour annulée');
+        return;
+      }
+      cell.classList.add('saving');
+      fetch(`/api/row/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field, value })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Mise à jour échouée');
+          currentRow[field] = value;
+          trace(`Champ ${field} de l'id ${id} mis à jour en mémoire`);
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace(`Erreur mise à jour: ${err.message}`);
+        })
+        .finally(() => {
+          cell.classList.remove('saving');
+        });
+    }
+
+    function deleteRow() {
+      if (!idKey || !currentRow[idKey]) return;
+      const c2 = headers[1] ? currentRow[headers[1]] : '';
+      const c3 = headers[2] ? currentRow[headers[2]] : '';
+      const msg = `Confirmer la suppression de ${c2} ${c3}`.trim();
+      if (!confirm(msg)) return;
+      deleteBtn.disabled = true;
+      statusEl.textContent = 'Suppression...';
+      fetch(`/api/row/${encodeURIComponent(currentRow[idKey])}`, { method: 'DELETE' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec suppression: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Suppression échouée');
+          statusEl.textContent = 'Supprimé. Pensez à enregistrer.';
+          trace(`Suppression id=${currentRow[idKey]} réussie`);
+          // Optionnel : vider l'affichage
+          table.hidden = true;
+          if (window.opener && typeof window.opener.refreshFromDetail === 'function') {
+            try { window.opener.refreshFromDetail(); } catch (err) { console.warn(err); }
+          }
+          setTimeout(() => window.close(), 200);
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur suppression: ' + err.message);
+          deleteBtn.disabled = false;
+        });
+    }
+
+    if (!requestedId) {
+      statusEl.textContent = 'Aucun identifiant fourni (paramètre id manquant).';
+      trace('Paramètre id manquant');
+    } else {
+      trace(`Début fetch API /api/row/${requestedId}`);
+      fetch(`/api/row/${encodeURIComponent(requestedId)}`, { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) throw new Error(`Echec de chargement: ${res.status}`);
+          trace(`Réponse OK, statut ${res.status}`);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.row) throw new Error('Réponse sans donnée');
+          headers = data.headers || [];
+          currentRow = data.row;
+          idKey = headers.find(h => h.toLowerCase() === 'id');
+          statusEl.textContent = '';
+          render(headers, currentRow);
+          trace('Rendu terminé depuis API');
+        })
+        .catch(err => {
+          console.error(err);
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace(`Erreur: ${err.message}`);
+        });
+    }
+
+    saveBtn.addEventListener('click', () => {
+      saveBtn.disabled = true;
+      statusEl.textContent = 'Enregistrement...';
+      fetch('/api/save', { method: 'POST' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec sauvegarde: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Sauvegarde échouée');
+          statusEl.textContent = `Sauvegardé (${data.saved} lignes)`;
+          trace('Sauvegarde CSV réussie');
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur sauvegarde: ' + err.message);
+        })
+        .finally(() => {
+          saveBtn.disabled = false;
+        });
+    });
+
+    deleteBtn.addEventListener('click', deleteRow);
+
+    function applyDigitConstraints(fieldName, input) {
+      if (fieldName.endsWith('_AAAA')) {
+        input.maxLength = 4;
+        input.placeholder = 'AAAA';
+        input.inputMode = 'numeric';
+        input.pattern = '\\d{0,4}';
+        input.style.width = '60px';
+        input.addEventListener('keydown', enforceDigitKey);
+        input.addEventListener('paste', enforceDigitPaste);
+        input.addEventListener('input', () => {
+          input.value = input.value.replace(/\\D+/g, '').slice(0, 4);
+        });
+      } else if (fieldName.endsWith('_MM') || fieldName.endsWith('_JJ')) {
+        input.maxLength = 2;
+        input.placeholder = fieldName.endsWith('_MM') ? 'MM' : 'JJ';
+        input.inputMode = 'numeric';
+        input.pattern = '\\d{0,2}';
+        input.style.width = '40px';
+        input.addEventListener('keydown', enforceDigitKey);
+        input.addEventListener('paste', enforceDigitPaste);
+        input.addEventListener('input', () => {
+          input.value = input.value.replace(/\\D+/g, '').slice(0, 2);
+        });
+      }
+    }
+
+    function enforceDigitKey(e) {
+      const allowed = ['Backspace', 'Delete', 'Tab', 'ArrowLeft', 'ArrowRight', 'Home', 'End'];
+      if (allowed.includes(e.key)) return;
+      if (!/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+      }
+    }
+
+    function enforceDigitPaste(e) {
+      e.preventDefault();
+      const pasted = (e.clipboardData || window.clipboardData).getData('text') || '';
+      const digits = pasted.replace(/\\D+/g, '');
+      const max = e.target.maxLength > 0 ? e.target.maxLength : digits.length;
+      const insert = digits.slice(0, max);
+      const start = e.target.selectionStart ?? e.target.value.length;
+      const end = e.target.selectionEnd ?? e.target.value.length;
+      const value = e.target.value;
+      e.target.value = value.slice(0, start) + insert + value.slice(end);
+      const pos = start + insert.length;
+      e.target.setSelectionRange(pos, pos);
+      e.target.dispatchEvent(new Event('input'));
+    }
+  </script>
+</body>
+</html>
