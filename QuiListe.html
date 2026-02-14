@@ -167,11 +167,13 @@
           input.dataset.field = h;
           input.dataset.id = idKey ? row[idKey] : '';
           input.addEventListener('change', () => {
+            const normalizedValue = normalizeFieldValue(h, input.value);
+            if (input.value !== normalizedValue) input.value = normalizedValue;
             if (!input.dataset.id) {
               trace('Impossible de mettre à jour: id manquant');
               return;
             }
-            saveField(input.dataset.id, h, input.value, td);
+            saveField(input.dataset.id, h, normalizedValue, td);
           });
           td.appendChild(input);
           tr.appendChild(td);
@@ -196,6 +198,17 @@
       if (header === 'Deces_MM') return '_MM';
       if (header === 'Deces_JJ') return '_JJ';
       return header;
+    }
+
+    function normalizeFieldValue(fieldName, value) {
+      const str = (value ?? '').toString();
+      if (fieldName === 'Nom') return str.toUpperCase();
+      if (fieldName === 'Prenom') {
+        return str
+          .toLowerCase()
+          .replace(/(^|[\s'-])(\p{L})/gu, (match, sep, letter) => sep + letter.toUpperCase());
+      }
+      return str;
     }
 
     function applySort(rows) {
@@ -422,11 +435,6 @@
           if (!data.ok) throw new Error(data.error || 'Export JS échoué');
           statusEl.textContent = `Qui.js généré (${data.rows} lignes).`;
           trace('Qui.js régénéré depuis le CSV serveur');
-          // Optionnel: charger les données du fichier généré
-          if (typeof window.renderJs === 'function') {
-            window.renderJs(render);
-            trace('Affichage avec données Qui.js');
-          }
         })
         .catch(err => {
           statusEl.textContent = 'Erreur: ' + err.message;

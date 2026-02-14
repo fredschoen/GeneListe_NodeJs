@@ -105,9 +105,24 @@ app.delete('/api/row/:id', (req, res) => {
 });
 
 app.post('/api/save', (req, res) => {
-  const csv = rowsToCsv();
-  fs.writeFileSync(CSV_PATH, csv, 'utf8');
-  res.json({ ok: true, saved: rows.length, path: CSV_PATH });
+  try {
+    const now = new Date();
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const timestamp =
+      `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}` +
+      `_${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+    const saveDir = path.join(__dirname, 'Data/Save');
+    const backupPath = path.join(saveDir, `qui_${timestamp}.csv`);
+    fs.mkdirSync(saveDir, { recursive: true });
+    fs.copyFileSync(CSV_PATH, backupPath);
+
+    const csv = rowsToCsv();
+    fs.writeFileSync(CSV_PATH, csv, 'utf8');
+    res.json({ ok: true, saved: rows.length, path: CSV_PATH, backup: backupPath });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/export/js', (req, res) => {

@@ -70,7 +70,9 @@
         input.value = row[h] ?? '';
         applyDigitConstraints(h, input);
         input.addEventListener('change', () => {
-          updateField(row[idKey], h, input.value, td);
+          const normalizedValue = normalizeFieldValue(h, input.value);
+          if (input.value !== normalizedValue) input.value = normalizedValue;
+          updateField(row[idKey], h, normalizedValue, td);
         });
         td.appendChild(input);
         tr.appendChild(th);
@@ -266,6 +268,17 @@
       const value = normalizeSexValue(pasted);
       e.target.value = value;
       e.target.dispatchEvent(new Event('input'));
+    }
+
+    function normalizeFieldValue(fieldName, value) {
+      const str = (value ?? '').toString();
+      if (fieldName === 'Nom') return str.toUpperCase();
+      if (fieldName === 'Prenom') {
+        return str
+          .toLowerCase()
+          .replace(/(^|[\s'-])(\p{L})/gu, (match, sep, letter) => sep + letter.toUpperCase());
+      }
+      return str;
     }
   </script>
 </body>
