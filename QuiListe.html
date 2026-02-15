@@ -19,10 +19,12 @@
   <button id="add-btn" disabled>Ajouter</button>
   <button id="refresh-btn" disabled>Tout Annuler</button>
   <button id="rerender-btn" disabled>Rafraîchir</button>
+  <button id="renumber-btn" disabled>Renumeroter</button>
   <button id="save-btn" disabled>Enregistrer (modifier)</button>
   <button id="js-btn" disabled>Transformer CSV en JS</button>
   <div style="margin:0.6rem 0; display:flex; gap:0.5rem; flex-wrap:wrap;">
     <input id="filter-gene" type="text" placeholder="Filtre Gene (contient)" />
+    <input id="filter-info" type="text" placeholder="Filtre Info (contient)" />
     <input id="filter-nom" type="text" placeholder="Filtre début Nom" />
     <input id="filter-prenom" type="text" placeholder="Filtre début Prenom" />
     <input id="filter-s" type="text" placeholder="Filtre S (M/F)" />
@@ -43,9 +45,11 @@
     const addBtn = document.getElementById('add-btn');
     const refreshBtn = document.getElementById('refresh-btn');
     const rerenderBtn = document.getElementById('rerender-btn');
+    const renumberBtn = document.getElementById('renumber-btn');
     const saveBtn = document.getElementById('save-btn');
     const jsBtn = document.getElementById('js-btn');
     const filterGeneInput = document.getElementById('filter-gene');
+    const filterInfoInput = document.getElementById('filter-info');
     const filterNomInput = document.getElementById('filter-nom');
     const filterPrenomInput = document.getElementById('filter-prenom');
     const filterSInput = document.getElementById('filter-s');
@@ -58,7 +62,7 @@
     let dataset = { headers: [], rows: [] };
     let sortKey = null;
     let sortAsc = true;
-    let filters = { gene: '', nom: '', prenom: '', s: '', naissStart: '', naissEnd: '' };
+    let filters = { gene: '', info: '', nom: '', prenom: '', s: '', naissStart: '', naissEnd: '' };
 
     function trace(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
@@ -78,6 +82,7 @@
       const onFilterChange = () => {
         filters = {
           gene: normalizeFilter(filterGeneInput.value),
+          info: normalizeFilter(filterInfoInput.value),
           nom: normalizeFilter(filterNomInput.value),
           prenom: normalizeFilter(filterPrenomInput.value),
           s: normalizeSexValue(filterSInput.value),
@@ -87,6 +92,7 @@
         render(dataset.headers, dataset.rows);
       };
       filterGeneInput.addEventListener('input', onFilterChange);
+      filterInfoInput.addEventListener('input', onFilterChange);
       filterNomInput.addEventListener('input', onFilterChange);
       filterPrenomInput.addEventListener('input', onFilterChange);
       filterSInput.addEventListener('input', onFilterChange);
@@ -227,6 +233,7 @@
 
     function applyFilters(rows, headers) {
       const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      const infoKey = headers.find(h => h.toLowerCase() === 'info');
       const nomKey = headers.find(h => h.toLowerCase() === 'nom');
       const prenomKey = headers.find(h => h.toLowerCase() === 'prenom');
       const sKey = headers.find(h => h.toLowerCase() === 's');
@@ -235,6 +242,7 @@
       const endYear = filters.naissEnd ? Number(filters.naissEnd) : null;
       return rows.filter(row => {
         if (filters.gene && !normalizeFilter(row[geneKey]).includes(filters.gene)) return false;
+        if (filters.info && !normalizeFilter(row[infoKey]).includes(filters.info)) return false;
         if (filters.nom && !normalizeFilter(row[nomKey]).startsWith(filters.nom)) return false;
         if (filters.prenom && !normalizeFilter(row[prenomKey]).startsWith(filters.prenom)) return false;
         if (filters.s && normalizeSexValue(row[sKey]) !== filters.s) return false;
@@ -382,6 +390,7 @@
           addBtn.disabled = false;
           refreshBtn.disabled = false;
           rerenderBtn.disabled = false;
+          renumberBtn.disabled = false;
           saveBtn.disabled = false;
           jsBtn.disabled = false;
         })
@@ -421,6 +430,32 @@
 
     rerenderBtn.addEventListener('click', () => {
       refreshDataAndRender('Affichage rafraîchi (données mémoire serveur).');
+    });
+
+    renumberBtn.addEventListener('click', () => {
+      const ok = confirm('Confirmer la renumerotation des ID (1..N) ?');
+      if (!ok) return;
+      renumberBtn.disabled = true;
+      statusEl.textContent = 'Renumerotation...';
+      fetch('/api/renumber', { method: 'POST' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec renumerotation: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Renumerotation echouee');
+          dataset = { ...dataset, rows: data.rows };
+          render(dataset.headers, dataset.rows);
+          statusEl.textContent = `IDs renumerotes (${data.updated} lignes).`;
+          trace('Renumerotation des ID reussie');
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur renumerotation: ' + err.message);
+        })
+        .finally(() => {
+          renumberBtn.disabled = false;
+        });
     });
 
     jsBtn.addEventListener('click', () => {

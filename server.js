@@ -104,6 +104,15 @@ app.delete('/api/row/:id', (req, res) => {
   res.json({ ok: true, removed });
 });
 
+app.post('/api/renumber', (req, res) => {
+  const idKey = findIdKey();
+  if (!idKey) return res.status(400).json({ error: 'Colonne ID absente' });
+  rows.forEach((row, index) => {
+    row[idKey] = String(index + 1);
+  });
+  res.json({ ok: true, updated: rows.length, rows });
+});
+
 app.post('/api/save', (req, res) => {
   try {
     const now = new Date();

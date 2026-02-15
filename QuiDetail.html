@@ -17,6 +17,7 @@
   <div id="status">Chargement...</div>
   <button id="save-btn" disabled>Enregistrer</button>
   <button id="delete-btn" class="danger" disabled>Supprimer</button>
+  <button id="add-child-btn" disabled>Ajouter un enfant</button>
   <table id="detail-table" hidden>
     <tbody></tbody>
   </table>
@@ -29,6 +30,7 @@
     const statusEl = document.getElementById('status');
     const saveBtn = document.getElementById('save-btn');
     const deleteBtn = document.getElementById('delete-btn');
+    const addChildBtn = document.getElementById('add-child-btn');
     const traceToggleBtn = document.getElementById('trace-toggle-btn');
     const traceEl = document.getElementById('trace');
     const table = document.getElementById('detail-table');
@@ -59,6 +61,7 @@
       tbody.innerHTML = '';
       saveBtn.disabled = false;
       deleteBtn.disabled = false;
+      addChildBtn.disabled = false;
       const visibleHeaders = headers.filter(h => h !== idKey);
       visibleHeaders.forEach((h, idx) => {
         const tr = document.createElement('tr');
@@ -139,6 +142,126 @@
         });
     }
 
+    function normalizeGeneBase(geneValue) {
+      let gene = (geneValue ?? '').toString().trim();
+      if (!gene) return '';
+      if (gene.endsWith('&0')) {
+        gene = gene.slice(0, -2);
+      }
+      if (!gene.endsWith('&')) {
+        gene += '&';
+      }
+      return gene;
+    }
+
+    function extractNextLevel(baseGene) {
+      const levels = Array.from(baseGene.matchAll(/&(\d+)[a-z]+/gi))
+        .map(m => Number(m[1]))
+        .filter(n => Number.isFinite(n));
+      if (!levels.length) return 1;
+      const lastLevel = levels[levels.length - 1];
+      if (!Number.isFinite(lastLevel)) return 1;
+      return lastLevel + 1;
+    }
+
+    function findNextChildRank(rows, geneKey, baseGene, level) {
+      const prefix = `${baseGene}${level}`;
+      const used = new Set();
+      rows.forEach(row => {
+        const g = (row[geneKey] ?? '').toString().trim();
+        if (!g.startsWith(prefix)) return;
+        const rest = g.slice(prefix.length);
+        const m = /^([a-z]+)&/i.exec(rest);
+        if (m) used.add(m[1].toLowerCase());
+      });
+      for (let code = 97; code <= 122; code += 1) {
+        const letter = String.fromCharCode(code);
+        if (!used.has(letter)) return letter;
+      }
+      return null;
+    }
+
+    function addChild() {
+      if (!idKey || !currentRow[idKey]) return;
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      const nomKey = headers.find(h => h.toLowerCase() === 'nom');
+      if (!geneKey) {
+        statusEl.textContent = 'Erreur: colonne Gene absente.';
+        trace('Ajout enfant annulé: colonne Gene absente');
+        return;
+      }
+      const parentGene = normalizeGeneBase(currentRow[geneKey]);
+      if (!parentGene) {
+        statusEl.textContent = 'Erreur: Gene parent vide.';
+        trace('Ajout enfant annulé: Gene parent vide');
+        return;
+      }
+
+      addChildBtn.disabled = true;
+      statusEl.textContent = 'Ajout enfant...';
+
+      let childId = null;
+      let childGene = null;
+      const parentNom = nomKey ? (currentRow[nomKey] ?? '').toString() : '';
+
+      fetch('/api/data', { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec lecture data: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          const rows = data.rows || [];
+          const level = extractNextLevel(parentGene);
+          const rank = findNextChildRank(rows, geneKey, parentGene, level);
+          if (!rank) throw new Error('Plus de rang enfant disponible (a-z)');
+          childGene = `${parentGene}${level}${rank}&`;
+          return fetch('/api/row', { method: 'POST' });
+        })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec ajout ligne: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Ajout ligne échoué');
+          childId = data.row && data.row[idKey];
+          if (!childId) throw new Error('Nouvel ID introuvable');
+          return fetch(`/api/row/${encodeURIComponent(childId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field: geneKey, value: childGene })
+          });
+        })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec update Nom enfant: ' + res.status);
+          if (!nomKey) return { ok: true, json: () => Promise.resolve({ ok: true }) };
+          return fetch(`/api/row/${encodeURIComponent(childId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field: nomKey, value: parentNom })
+          });
+        })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec update Nom enfant: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Update enfant échoué');
+          statusEl.textContent = `Enfant ajouté (id=${childId}, Gene=${childGene}).`;
+          trace(`Enfant ajouté: id=${childId}, Gene=${childGene}`);
+          if (window.opener && typeof window.opener.refreshFromDetail === 'function') {
+            try { window.opener.refreshFromDetail(); } catch (err) { console.warn(err); }
+          }
+          window.location.href = `QuiDetail.html?id=${encodeURIComponent(childId)}`;
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur ajout enfant: ' + err.message);
+        })
+        .finally(() => {
+          addChildBtn.disabled = false;
+        });
+    }
+
     if (!requestedId) {
       statusEl.textContent = 'Aucun identifiant fourni (paramètre id manquant).';
       trace('Paramètre id manquant');
@@ -189,6 +312,7 @@
     });
 
     deleteBtn.addEventListener('click', deleteRow);
+    addChildBtn.addEventListener('click', addChild);
 
     function applyDigitConstraints(fieldName, input) {
       if (fieldName.endsWith('_AAAA')) {
