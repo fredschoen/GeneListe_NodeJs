@@ -22,6 +22,7 @@
   <button id="renumber-btn" disabled>Renumeroter</button>
   <button id="save-btn" disabled>Enregistrer (modifier)</button>
   <button id="js-btn" disabled>Transformer CSV en JS</button>
+  <button id="txt-btn" disabled>Export TXT</button>
   <div style="margin:0.6rem 0; display:flex; gap:0.5rem; flex-wrap:wrap;">
     <input id="filter-gene" type="text" placeholder="Filtre Gene (contient)" />
     <input id="filter-info" type="text" placeholder="Filtre Info (contient)" />
@@ -48,6 +49,7 @@
     const renumberBtn = document.getElementById('renumber-btn');
     const saveBtn = document.getElementById('save-btn');
     const jsBtn = document.getElementById('js-btn');
+    const txtBtn = document.getElementById('txt-btn');
     const filterGeneInput = document.getElementById('filter-gene');
     const filterInfoInput = document.getElementById('filter-info');
     const filterNomInput = document.getElementById('filter-nom');
@@ -393,6 +395,7 @@
           renumberBtn.disabled = false;
           saveBtn.disabled = false;
           jsBtn.disabled = false;
+          txtBtn.disabled = false;
         })
         .catch(err => {
           console.error(err);
@@ -477,6 +480,30 @@
         })
         .finally(() => {
           jsBtn.disabled = false;
+        });
+    });
+
+    txtBtn.addEventListener('click', () => {
+      txtBtn.disabled = true;
+      statusEl.textContent = 'Export de qui.txt...';
+      fetch('/api/export/txt', { method: 'POST' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec export TXT: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Export TXT échoué');
+          statusEl.textContent = `qui.txt généré (${data.rows} lignes).`;
+          trace(`Export TXT réussi: ${data.path}`);
+          const url = `/Data/qui.txt?t=${Date.now()}`;
+          window.open(url, '_blank', 'noopener');
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur export TXT: ' + err.message);
+        })
+        .finally(() => {
+          txtBtn.disabled = false;
         });
     });
 

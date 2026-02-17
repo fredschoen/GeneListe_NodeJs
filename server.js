@@ -12,6 +12,7 @@ app.use(express.static(__dirname));
 let headers = [];
 let rows = [];
 let delimiter = ';';
+const TXT_PATH = path.join(__dirname, 'Data', 'qui.txt');
 
 function detectDelimiter(line) {
   return line.includes(';') ? ';' : '\t';
@@ -54,7 +55,106 @@ function findIdKey() {
   return headers.find(h => h.toLowerCase() === 'id');
 }
 
+function findKey(name) {
+  const needle = name.toLowerCase();
+  return headers.find(h => h.toLowerCase() === needle);
+}
+
+function parseGeneSegments(gene) {
+  return String(gene || '')
+    .split(/[&#]/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function compareGene(a, b) {
+  return a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' });
+}
+
+function buildPersonLabel(row, keys) {
+  const nom = (row[keys.nom] || '').trim();
+  const prenom = (row[keys.prenom] || '').trim();
+  const s = (row[keys.s] || '').trim();
+  const main = [nom, prenom].filter(Boolean).join(' ').trim() || '(sans nom)';
+  const bits = [main];
+  if (s) bits.push(`[${s}]`);
+  return bits.join(' ');
+}
+
+function buildGeneTreeText() {
+  const keys = {
+    id: findKey('id'),
+    gene: findKey('gene'),
+    nom: findKey('nom'),
+    prenom: findKey('prenom'),
+    s: findKey('s'),
+  };
+  if (!keys.gene) {
+    return 'Impossible de generer qui.txt: colonne "Gene" absente.';
+  }
+
+  const treeRoot = { token: null, row: null, children: new Map() };
+  const sorted = [...rows]
+    .filter(r => (r[keys.gene] || '').trim().length > 0)
+    .sort((ra, rb) => compareGene(ra[keys.gene] || '', rb[keys.gene] || ''));
+
+  sorted.forEach(row => {
+    const segments = parseGeneSegments(row[keys.gene]);
+    if (!segments.length) return;
+    let cursor = treeRoot;
+    segments.forEach(seg => {
+      if (!cursor.children.has(seg)) {
+        cursor.children.set(seg, { token: seg, row: null, children: new Map() });
+      }
+      cursor = cursor.children.get(seg);
+    });
+    if (!cursor.row) cursor.row = row;
+  });
+
+  const lines = [
+    `Arbre genealogique (${new Date().toISOString()})`,
+    '',
+  ];
+
+  function buildSpouseInlineText(node) {
+    const spouseNode = node.children.get('0');
+    if (!spouseNode || !spouseNode.row) return '';
+    return `  & ${buildPersonLabel(spouseNode.row, keys)}`;
+  }
+
+  function walk(node, prefix, isLast) {
+    const connector = isLast ? '└─ ' : '├─ ';
+    const label = node.row ? ` ${buildPersonLabel(node.row, keys)}` : '';
+    const spouseInline = buildSpouseInlineText(node);
+    lines.push(`${prefix}${connector}${node.token}${label}${spouseInline}`);
+    const children = Array.from(node.children.values())
+      .filter(child => child.token !== '0');
+    children.sort((a, b) => compareGene(a.token, b.token));
+    const childPrefix = `${prefix}${isLast ? '   ' : '│  '}`;
+    children.forEach((child, idx) => {
+      walk(child, childPrefix, idx === children.length - 1);
+    });
+  }
+
+  const roots = Array.from(treeRoot.children.values());
+  roots.sort((a, b) => compareGene(a.token, b.token));
+  roots.forEach((node, idx) => walk(node, '', idx === roots.length - 1));
+
+  if (!roots.length) {
+    lines.push('(aucune donnee)');
+  }
+
+  return lines.join('\n');
+}
+
+function writeQuiTxt() {
+  const content = buildGeneTreeText();
+  fs.writeFileSync(TXT_PATH, content, 'utf8');
+  return TXT_PATH;
+}
+
 loadCsv();
+writeQuiTxt();
 
 app.get('/api/data', (req, res) => {
   res.json({ headers, rows });
@@ -126,8 +226,10 @@ app.post('/api/save', (req, res) => {
     fs.copyFileSync(CSV_PATH, backupPath);
 
     const csv = rowsToCsv();
+    //console.log(csv);
     fs.writeFileSync(CSV_PATH, csv, 'utf8');
-    res.json({ ok: true, saved: rows.length, path: CSV_PATH, backup: backupPath });
+    const txtPath = writeQuiTxt();
+    res.json({ ok: true, saved: rows.length, path: CSV_PATH, backup: backupPath, txt: txtPath });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -156,6 +258,7 @@ app.post('/api/export/js', (req, res) => {
     }
   };
 })();`;
+
     fs.writeFileSync(jsPath, content, 'utf8');
     res.json({ ok: true, path: jsPath, headers: headers.length, rows: rows.length });
   } catch (err) {
@@ -166,7 +269,18 @@ app.post('/api/export/js', (req, res) => {
 
 app.post('/api/reload', (req, res) => {
   loadCsv();
+  writeQuiTxt();
   res.json({ ok: true, headers, rows });
+});
+
+app.post('/api/export/txt', (req, res) => {
+  try {
+    const txtPath = writeQuiTxt();
+    res.json({ ok: true, path: txtPath, rows: rows.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {
