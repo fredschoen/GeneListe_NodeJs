@@ -29,6 +29,30 @@
     <input id="filter-nom" type="text" placeholder="Filtre début Nom" />
     <input id="filter-prenom" type="text" placeholder="Filtre début Prenom" />
     <input id="filter-s" type="text" placeholder="Filtre S (M/F)" />
+    <select id="filter-spouse" aria-label="Filtre conjoint">
+      <option value="">Conjoint: tout</option>
+      <option value="O">Conjoint: O</option>
+      <option value="N">Conjoint: N</option>
+    </select>
+    <select id="filter-gen-startLevel" aria-label="Filtre generation debut">
+      <option value="">Gene deb: tout</option>
+      <option value="1">Gene deb = 1</option>
+      <option value="2">Gene deb = 2</option>
+      <option value="3">Gene deb = 3</option>
+      <option value="4">Gene deb = 4</option>
+      <option value="5">Gene deb = 5</option>
+      <option value="6">Gene deb = 6</option>
+      <option value="7">Gene deb = 7</option>
+    </select>
+    <select id="filter-gen-endLevel" aria-label="Filtre generation fin">
+      <option value="">Gene fin: tout</option>
+      <option value="2">Gene fin = 2</option>
+      <option value="3">Gene fin = 3</option>
+      <option value="4">Gene fin = 4</option>
+      <option value="5">Gene fin = 5</option>
+      <option value="6">Gene fin = 6</option>
+      <option value="7">Gene fin = 7</option>
+    </select>
     <input id="filter-naiss-start" type="text" placeholder="Naiss_AAAA début" />
     <input id="filter-naiss-end" type="text" placeholder="Naiss_AAAA fin" />
   </div>
@@ -55,6 +79,9 @@
     const filterNomInput = document.getElementById('filter-nom');
     const filterPrenomInput = document.getElementById('filter-prenom');
     const filterSInput = document.getElementById('filter-s');
+    const filterSpouseInput = document.getElementById('filter-spouse');
+    const filterGenStartLevelInput = document.getElementById('filter-gen-startLevel');
+    const filterGenEndLevelInput = document.getElementById('filter-gen-endLevel');
     const filterNaissStartInput = document.getElementById('filter-naiss-start');
     const filterNaissEndInput = document.getElementById('filter-naiss-end');
     const traceToggleBtn = document.getElementById('trace-toggle-btn');
@@ -64,7 +91,7 @@
     let dataset = { headers: [], rows: [] };
     let sortKey = null;
     let sortAsc = true;
-    let filters = { gene: '', info: '', nom: '', prenom: '', s: '', naissStart: '', naissEnd: '' };
+    let filters = { gene: '', info: '', nom: '', prenom: '', s: '', spouse: '', genStartLevel: '', genEndLevel: '', naissStart: '', naissEnd: '' };
 
     function trace(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
@@ -88,6 +115,9 @@
           nom: normalizeFilter(filterNomInput.value),
           prenom: normalizeFilter(filterPrenomInput.value),
           s: normalizeSexValue(filterSInput.value),
+          spouse: normalizeSpouseFilter(filterSpouseInput.value),
+          genStartLevel: normalizeStartGenerationFilter(filterGenStartLevelInput.value),
+          genEndLevel: normalizeEndGenerationFilter(filterGenEndLevelInput.value),
           naissStart: normalizeYearFilter(filterNaissStartInput.value),
           naissEnd: normalizeYearFilter(filterNaissEndInput.value)
         };
@@ -98,6 +128,9 @@
       filterNomInput.addEventListener('input', onFilterChange);
       filterPrenomInput.addEventListener('input', onFilterChange);
       filterSInput.addEventListener('input', onFilterChange);
+      filterSpouseInput.addEventListener('change', onFilterChange);
+      filterGenStartLevelInput.addEventListener('change', onFilterChange);
+      filterGenEndLevelInput.addEventListener('change', onFilterChange);
       filterNaissStartInput.addEventListener('input', onFilterChange);
       filterNaissEndInput.addEventListener('input', onFilterChange);
     }
@@ -113,6 +146,37 @@
     function normalizeSexValue(value) {
       const normalized = (value ?? '').toString().toUpperCase().replace(/[^MF]/g, '');
       return normalized.slice(0, 1);
+    }
+
+    function normalizeStartGenerationFilter(value) {
+      const raw = (value ?? '').toString().trim();
+      if (!/^[1-7]$/.test(raw)) return '';
+      return raw;
+    }
+
+    function normalizeEndGenerationFilter(value) {
+      const raw = (value ?? '').toString().trim();
+      if (!/^[2-7]$/.test(raw)) return '';
+      return raw;
+    }
+
+    function normalizeSpouseFilter(value) {
+      const raw = (value ?? '').toString().trim().toUpperCase();
+      if (raw !== 'O' && raw !== 'N') return '';
+      return raw;
+    }
+
+    function isSpouseGene(geneValue) {
+      const gene = (geneValue ?? '').toString().trim();
+      return gene.endsWith('&0');
+    }
+
+    function extractGenerationDepth(geneValue) {
+      const gene = (geneValue ?? '').toString();
+      const matches = Array.from(gene.matchAll(/&(\d+)[a-z]+/gi));
+      if (!matches.length) return 0;
+      const levels = matches.map(m => Number(m[1])).filter(n => Number.isFinite(n));
+      return levels.length ? Math.max(...levels) : 0;
     }
 
     setupTraceToggle();
@@ -242,12 +306,27 @@
       const naissKey = headers.find(h => h.toLowerCase() === 'naiss_aaaa');
       const startYear = filters.naissStart ? Number(filters.naissStart) : null;
       const endYear = filters.naissEnd ? Number(filters.naissEnd) : null;
+      const minGeneration = filters.genStartLevel ? Number(filters.genStartLevel) : null;
+      const maxGeneration = filters.genEndLevel ? Number(filters.genEndLevel) : null;
       return rows.filter(row => {
         if (filters.gene && !normalizeFilter(row[geneKey]).includes(filters.gene)) return false;
         if (filters.info && !normalizeFilter(row[infoKey]).includes(filters.info)) return false;
         if (filters.nom && !normalizeFilter(row[nomKey]).startsWith(filters.nom)) return false;
         if (filters.prenom && !normalizeFilter(row[prenomKey]).startsWith(filters.prenom)) return false;
         if (filters.s && normalizeSexValue(row[sKey]) !== filters.s) return false;
+        if (filters.spouse) {
+          const spouse = isSpouseGene(row[geneKey]);
+          if (filters.spouse === 'O' && !spouse) return false;
+          if (filters.spouse === 'N' && spouse) return false;
+        }
+        if (minGeneration !== null) {
+          const depth = extractGenerationDepth(row[geneKey]);
+          if (!depth || depth < minGeneration) return false;
+        }
+        if (maxGeneration !== null) {
+          const depth = extractGenerationDepth(row[geneKey]);
+          if (!depth || depth > maxGeneration) return false;
+        }
         if (startYear !== null || endYear !== null) {
           const yearValue = normalizeYearFilter(row[naissKey]);
           if (!yearValue) return false;

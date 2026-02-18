@@ -14,6 +14,11 @@
 <body>
   <h1>Détail (vue)</h1>
   <div id="status">Chargement...</div>
+  <button id="go-parent-btn" disabled>Aller à parent</button>
+  <button id="go-spouse-btn" disabled>Aller à conjoint</button>
+  <button id="go-first-child-btn" disabled>Aller à 1er enfant</button>
+  <button id="go-next-sibling-btn" disabled>Aller à frere/soeur suivant</button>
+  <button id="go-prev-sibling-btn" disabled>Aller à frere/soeur precedant</button>
   <table id="detail-table" hidden>
     <tbody></tbody>
   </table>
@@ -25,8 +30,18 @@
     const requestedId = params.get('id');
     const statusEl = document.getElementById('status');
     const traceEl = document.getElementById('trace');
+    const goParentBtn = document.getElementById('go-parent-btn');
+    const goSpouseBtn = document.getElementById('go-spouse-btn');
+    const goFirstChildBtn = document.getElementById('go-first-child-btn');
+    const goNextSiblingBtn = document.getElementById('go-next-sibling-btn');
+    const goPrevSiblingBtn = document.getElementById('go-prev-sibling-btn');
     const table = document.getElementById('detail-table');
     const tbody = table.querySelector('tbody');
+    let currentHeaders = [];
+    let currentRows = [];
+    let currentRow = null;
+    let idKey = null;
+    let geneKey = null;
 
     function trace(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
@@ -36,7 +51,6 @@
 
     function render(headers, row) {
       tbody.innerHTML = '';
-      const idKey = headers.find(h => h.toLowerCase() === 'id');
       const visibleHeaders = headers.filter(h => h !== idKey);
       visibleHeaders.forEach(h => {
         const tr = document.createElement('tr');
@@ -49,6 +63,146 @@
         tbody.appendChild(tr);
       });
       table.hidden = false;
+    }
+
+    function normalizeGeneBase(geneValue) {
+      let gene = (geneValue ?? '').toString().trim();
+      if (!gene) return '';
+      if (gene.endsWith('&0')) gene = gene.slice(0, -2);
+      if (!gene.endsWith('&')) gene += '&';
+      return gene;
+    }
+
+    function geneCanonical(geneValue) {
+      const raw = (geneValue ?? '').toString().trim();
+      if (!raw) return '';
+      if (raw.endsWith('&0')) return raw;
+      return normalizeGeneBase(raw);
+    }
+
+    function findRowByGene(targetGene) {
+      const target = geneCanonical(targetGene);
+      if (!target || !geneKey) return null;
+      return currentRows.find(r => geneCanonical(r[geneKey]) === target) || null;
+    }
+
+    function navigateToRow(row, actionLabel) {
+      if (!row || !idKey || !row[idKey]) {
+        statusEl.textContent = `${actionLabel}: introuvable.`;
+        return;
+      }
+      window.location.href = `vQuiDetail.html?id=${encodeURIComponent(row[idKey])}`;
+    }
+
+    function computeParentGene(rawGene) {
+      const baseGene = normalizeGeneBase(rawGene);
+      const segments = baseGene.match(/&\d+[a-z]+/gi) || [];
+      if (segments.length <= 1) return '';
+      return `${segments.slice(0, -1).join('')}&`;
+    }
+
+    function extractNextLevel(baseGene) {
+      const levels = Array.from(baseGene.matchAll(/&(\d+)[a-z]+/gi))
+        .map(m => Number(m[1]))
+        .filter(n => Number.isFinite(n));
+      if (!levels.length) return 1;
+      return levels[levels.length - 1] + 1;
+    }
+
+    function extractSiblingContext(baseGene) {
+      const match = /^(.*&)(\d+)[a-z]+&$/i.exec(baseGene);
+      if (!match) return null;
+      return { parentPrefix: match[1], level: Number(match[2]) };
+    }
+
+    function findSiblingBases(parentPrefix, level) {
+      const prefix = `${parentPrefix}${level}`;
+      const bases = new Set();
+      currentRows.forEach(row => {
+        const gRaw = (row[geneKey] ?? '').toString().trim();
+        if (!gRaw || gRaw.endsWith('&0')) return;
+        const base = normalizeGeneBase(gRaw);
+        if (!base.startsWith(prefix)) return;
+        const rest = base.slice(prefix.length);
+        if (!/^[a-z]+&$/i.test(rest)) return;
+        bases.add(base);
+      });
+      return Array.from(bases).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+    }
+
+    function goParent() {
+      if (!currentRow || !geneKey) return;
+      const target = computeParentGene(currentRow[geneKey]);
+      navigateToRow(findRowByGene(target), 'Aller a parent');
+    }
+
+    function goSpouse() {
+      if (!currentRow || !geneKey) return;
+      const rawGene = (currentRow[geneKey] ?? '').toString().trim();
+      if (!rawGene) return;
+      const baseGene = normalizeGeneBase(rawGene);
+      const spouseGene = rawGene.endsWith('&0') ? baseGene : `${baseGene}0`;
+      navigateToRow(findRowByGene(spouseGene), 'Aller a conjoint');
+    }
+
+    function goFirstChild() {
+      if (!currentRow || !geneKey) return;
+      const rawGene = (currentRow[geneKey] ?? '').toString().trim();
+      if (!rawGene) return;
+      const baseGene = normalizeGeneBase(rawGene);
+      const level = extractNextLevel(baseGene);
+      const prefix = `${baseGene}${level}`;
+      const childBases = [];
+      currentRows.forEach(row => {
+        const gRaw = (row[geneKey] ?? '').toString().trim();
+        if (!gRaw || gRaw.endsWith('&0')) return;
+        const base = normalizeGeneBase(gRaw);
+        if (!base.startsWith(prefix)) return;
+        const rest = base.slice(prefix.length);
+        if (!/^[a-z]+&$/i.test(rest)) return;
+        childBases.push(base);
+      });
+      if (!childBases.length) {
+        statusEl.textContent = 'Aller a 1er enfant: aucun enfant.';
+        return;
+      }
+      childBases.sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+      navigateToRow(findRowByGene(childBases[0]), 'Aller a 1er enfant');
+    }
+
+    function goSibling(direction) {
+      if (!currentRow || !geneKey) return;
+      const rawGene = (currentRow[geneKey] ?? '').toString().trim();
+      if (!rawGene) return;
+      const baseGene = normalizeGeneBase(rawGene);
+      const ctx = extractSiblingContext(baseGene);
+      const label = direction > 0 ? 'Aller a frere/soeur suivant' : 'Aller a frere/soeur precedant';
+      if (!ctx) {
+        statusEl.textContent = `${label}: impossible.`;
+        return;
+      }
+      const siblings = findSiblingBases(ctx.parentPrefix, ctx.level);
+      const idx = siblings.indexOf(baseGene);
+      if (idx === -1) {
+        statusEl.textContent = `${label}: position introuvable.`;
+        return;
+      }
+      const nextIdx = idx + (direction > 0 ? 1 : -1);
+      if (nextIdx < 0 || nextIdx >= siblings.length) {
+        statusEl.textContent = direction > 0
+          ? 'Fin de fratrie: aucun frere/soeur suivant.'
+          : 'Debut de fratrie: aucun frere/soeur precedant.';
+        return;
+      }
+      navigateToRow(findRowByGene(siblings[nextIdx]), label);
+    }
+
+    function enableNav() {
+      goParentBtn.disabled = false;
+      goSpouseBtn.disabled = false;
+      goFirstChildBtn.disabled = false;
+      goNextSiblingBtn.disabled = false;
+      goPrevSiblingBtn.disabled = false;
     }
 
     function parseCSV(text) {
@@ -85,8 +239,14 @@
           const data = parseCSV(text);
           const row = requestedId ? findRow(requestedId, data) : null;
           if (!row) throw new Error(`Aucune entrée avec id=${requestedId}`);
+          currentHeaders = data.headers;
+          currentRows = data.rows;
+          currentRow = row;
+          idKey = currentHeaders.find(h => h.toLowerCase() === 'id');
+          geneKey = currentHeaders.find(h => h.toLowerCase() === 'gene');
           statusEl.textContent = '';
           render(data.headers, row);
+          enableNav();
           trace(`CSV chargé (${data.rows.length} lignes)`);
         })
         .catch(err => {
@@ -119,11 +279,23 @@
           trace('ID non trouvé dans Qui.js');
           return;
         }
+        currentHeaders = headers;
+        currentRows = rows;
+        currentRow = row;
+        idKey = currentHeaders.find(h => h.toLowerCase() === 'id');
+        geneKey = currentHeaders.find(h => h.toLowerCase() === 'gene');
         render(headers, row);
         statusEl.textContent = 'Affiché depuis Qui.js';
+        enableNav();
       });
       return true;
     }
+
+    goParentBtn.addEventListener('click', goParent);
+    goSpouseBtn.addEventListener('click', goSpouse);
+    goFirstChildBtn.addEventListener('click', goFirstChild);
+    goNextSiblingBtn.addEventListener('click', () => goSibling(1));
+    goPrevSiblingBtn.addEventListener('click', () => goSibling(-1));
   </script>
 </body>
 </html>

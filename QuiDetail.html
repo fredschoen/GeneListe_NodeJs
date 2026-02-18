@@ -18,6 +18,13 @@
   <button id="save-btn" disabled>Enregistrer</button>
   <button id="delete-btn" class="danger" disabled>Supprimer</button>
   <button id="add-child-btn" disabled>Ajouter un enfant</button>
+  <button id="add-spouse-btn" disabled>Ajouter le conjoint</button>
+  <button id="add-sibling-btn" disabled>Créer frère/soeur</button>
+  <button id="go-parent-btn" disabled>Aller à parent</button>
+  <button id="go-spouse-btn" disabled>Aller à conjoint</button>
+  <button id="go-first-child-btn" disabled>Aller à 1er enfant</button>
+  <button id="go-next-sibling-btn" disabled>Aller à frère/soeur suivant</button>
+  <button id="go-prev-sibling-btn" disabled>Aller à frère/soeur precedant</button>
   <table id="detail-table" hidden>
     <tbody></tbody>
   </table>
@@ -31,6 +38,13 @@
     const saveBtn = document.getElementById('save-btn');
     const deleteBtn = document.getElementById('delete-btn');
     const addChildBtn = document.getElementById('add-child-btn');
+    const addSpouseBtn = document.getElementById('add-spouse-btn');
+    const addSiblingBtn = document.getElementById('add-sibling-btn');
+    const goParentBtn = document.getElementById('go-parent-btn');
+    const goSpouseBtn = document.getElementById('go-spouse-btn');
+    const goFirstChildBtn = document.getElementById('go-first-child-btn');
+    const goNextSiblingBtn = document.getElementById('go-next-sibling-btn');
+    const goPrevSiblingBtn = document.getElementById('go-prev-sibling-btn');
     const traceToggleBtn = document.getElementById('trace-toggle-btn');
     const traceEl = document.getElementById('trace');
     const table = document.getElementById('detail-table');
@@ -62,6 +76,13 @@
       saveBtn.disabled = false;
       deleteBtn.disabled = false;
       addChildBtn.disabled = false;
+      addSpouseBtn.disabled = false;
+      addSiblingBtn.disabled = false;
+      goParentBtn.disabled = false;
+      goSpouseBtn.disabled = false;
+      goFirstChildBtn.disabled = false;
+      goNextSiblingBtn.disabled = false;
+      goPrevSiblingBtn.disabled = false;
       const visibleHeaders = headers.filter(h => h !== idKey);
       visibleHeaders.forEach((h, idx) => {
         const tr = document.createElement('tr');
@@ -181,6 +202,212 @@
       return null;
     }
 
+    function extractSiblingContext(baseGene) {
+      const match = /^(.*&)(\d+)[a-z]+&$/i.exec(baseGene);
+      if (!match) return null;
+      return {
+        parentPrefix: match[1],
+        level: Number(match[2])
+      };
+    }
+
+    function findNextSiblingRank(rows, geneKey, parentPrefix, level) {
+      const prefix = `${parentPrefix}${level}`;
+      const used = new Set();
+      rows.forEach(row => {
+        const g = (row[geneKey] ?? '').toString().trim();
+        if (!g.startsWith(prefix)) return;
+        const rest = g.slice(prefix.length);
+        const m = /^([a-z]+)&/i.exec(rest);
+        if (m) used.add(m[1].toLowerCase());
+      });
+      for (let code = 97; code <= 122; code += 1) {
+        const letter = String.fromCharCode(code);
+        if (!used.has(letter)) return letter;
+      }
+      return null;
+    }
+
+    function geneCanonical(geneValue) {
+      const raw = (geneValue ?? '').toString().trim();
+      if (!raw) return '';
+      if (raw.endsWith('&0')) return raw;
+      return normalizeGeneBase(raw);
+    }
+
+    function findRowByGene(rows, geneKey, targetGene) {
+      const target = geneCanonical(targetGene);
+      if (!target) return null;
+      return rows.find(r => geneCanonical(r[geneKey]) === target) || null;
+    }
+
+    function navigateToGene(targetGene, actionLabel) {
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      if (!idKey || !geneKey) {
+        statusEl.textContent = 'Erreur: colonnes ID/Gene absentes.';
+        return;
+      }
+      const target = geneCanonical(targetGene);
+      if (!target) {
+        statusEl.textContent = `${actionLabel}: cible introuvable.`;
+        return;
+      }
+      statusEl.textContent = `${actionLabel}...`;
+      fetch('/api/data', { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec lecture data: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          const rows = data.rows || [];
+          const row = findRowByGene(rows, geneKey, target);
+          if (!row || !row[idKey]) {
+            statusEl.textContent = `${actionLabel}: introuvable (${target}).`;
+            trace(`${actionLabel}: cible absente (${target})`);
+            return;
+          }
+          trace(`${actionLabel}: id=${row[idKey]}, Gene=${target}`);
+          window.location.href = `QuiDetail.html?id=${encodeURIComponent(row[idKey])}`;
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace(`${actionLabel}: ${err.message}`);
+        });
+    }
+
+    function computeParentGene(rawGene) {
+      const baseGene = normalizeGeneBase(rawGene);
+      const segments = baseGene.match(/&\d+[a-z]+/gi) || [];
+      if (segments.length <= 1) return '';
+      return `${segments.slice(0, -1).join('')}&`;
+    }
+
+    function parseLastSegment(baseGene) {
+      const m = /&(\d+)([a-z]+)&$/i.exec(baseGene);
+      if (!m) return null;
+      return { level: Number(m[1]), rank: m[2].toLowerCase() };
+    }
+
+    function findSiblingBases(rows, geneKey, parentPrefix, level) {
+      const prefix = `${parentPrefix}${level}`;
+      const bases = new Set();
+      rows.forEach(row => {
+        const gRaw = (row[geneKey] ?? '').toString().trim();
+        if (!gRaw || gRaw.endsWith('&0')) return;
+        const base = normalizeGeneBase(gRaw);
+        if (!base.startsWith(prefix)) return;
+        const rest = base.slice(prefix.length);
+        // Garder uniquement les personnes exactement au niveau de fratrie (pas les descendants).
+        if (!/^[a-z]+&$/i.test(rest)) return;
+        bases.add(base);
+      });
+      return Array.from(bases).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+    }
+
+    function goParent() {
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      if (!geneKey) return;
+      const parentGene = computeParentGene(currentRow[geneKey]);
+      navigateToGene(parentGene, 'Aller à parent');
+    }
+
+    function goSpouse() {
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      if (!geneKey) return;
+      const rawGene = (currentRow[geneKey] ?? '').toString().trim();
+      if (!rawGene) return;
+      const baseGene = normalizeGeneBase(rawGene);
+      const spouseGene = rawGene.endsWith('&0') ? baseGene : `${baseGene}0`;
+      navigateToGene(spouseGene, 'Aller à conjoint');
+    }
+
+    function goFirstChild() {
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      if (!geneKey) return;
+      const rawGene = (currentRow[geneKey] ?? '').toString().trim();
+      if (!rawGene) return;
+      const baseGene = normalizeGeneBase(rawGene);
+      const level = extractNextLevel(baseGene);
+      const prefix = `${baseGene}${level}`;
+      statusEl.textContent = 'Aller à 1er enfant...';
+      fetch('/api/data', { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec lecture data: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          const rows = data.rows || [];
+          const ranks = [];
+          rows.forEach(row => {
+            const gRaw = (row[geneKey] ?? '').toString().trim();
+            if (!gRaw || gRaw.endsWith('&0')) return;
+            const base = normalizeGeneBase(gRaw);
+            if (!base.startsWith(prefix)) return;
+            const rest = base.slice(prefix.length);
+            const m = /^([a-z]+)&/i.exec(rest);
+            if (m) ranks.push(m[1].toLowerCase());
+          });
+          if (!ranks.length) {
+            statusEl.textContent = 'Aller à 1er enfant: aucun enfant trouvé.';
+            trace('Aller à 1er enfant: aucun enfant');
+            return;
+          }
+          ranks.sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+          const firstChildGene = `${prefix}${ranks[0]}&`;
+          navigateToGene(firstChildGene, 'Aller à 1er enfant');
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Aller à 1er enfant: ' + err.message);
+        });
+    }
+
+    function goSibling(direction) {
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      if (!geneKey) return;
+      const rawGene = (currentRow[geneKey] ?? '').toString().trim();
+      if (!rawGene) return;
+      const baseGene = normalizeGeneBase(rawGene);
+      const currentSeg = parseLastSegment(baseGene);
+      const siblingCtx = extractSiblingContext(baseGene);
+      const actionLabel = direction > 0 ? 'Aller à frère/soeur suivant' : 'Aller à frère/soeur precedant';
+      if (!currentSeg || !siblingCtx) {
+        statusEl.textContent = `${actionLabel}: impossible depuis cette fiche.`;
+        trace(`${actionLabel}: contexte Gene invalide`);
+        return;
+      }
+      statusEl.textContent = `${actionLabel}...`;
+      fetch('/api/data', { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec lecture data: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          const rows = data.rows || [];
+          const siblings = findSiblingBases(rows, geneKey, siblingCtx.parentPrefix, siblingCtx.level);
+          if (!siblings.length) {
+            statusEl.textContent = `${actionLabel}: aucune fratrie trouvée.`;
+            return;
+          }
+          const currentBase = normalizeGeneBase(rawGene);
+          const idx = siblings.indexOf(currentBase);
+          if (idx === -1) {
+            statusEl.textContent = `${actionLabel}: position courante introuvable.`;
+            return;
+          }
+          const targetIdx = idx + (direction > 0 ? 1 : -1);
+          if (targetIdx < 0 || targetIdx >= siblings.length) {
+            statusEl.textContent = `${actionLabel}: aucun ${direction > 0 ? 'suivant' : 'precedant'}.`;
+            return;
+          }
+          navigateToGene(siblings[targetIdx], actionLabel);
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace(`${actionLabel}: ${err.message}`);
+        });
+    }
+
     function addChild() {
       if (!idKey || !currentRow[idKey]) return;
       const geneKey = headers.find(h => h.toLowerCase() === 'gene');
@@ -262,6 +489,177 @@
         });
     }
 
+    function addSpouse() {
+      if (!idKey || !currentRow[idKey]) return;
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      if (!geneKey) {
+        statusEl.textContent = 'Erreur: colonne Gene absente.';
+        trace('Ajout conjoint annulé: colonne Gene absente');
+        return;
+      }
+      const baseGene = normalizeGeneBase(currentRow[geneKey]);
+      if (!baseGene) {
+        statusEl.textContent = 'Erreur: Gene vide.';
+        trace('Ajout conjoint annulé: Gene vide');
+        return;
+      }
+      const spouseGene = `${baseGene}0`;
+
+      addSpouseBtn.disabled = true;
+      statusEl.textContent = 'Ajout conjoint...';
+
+      let spouseId = null;
+
+      fetch('/api/data', { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec lecture data: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          const rows = data.rows || [];
+          const existing = rows.find(r => ((r[geneKey] ?? '').toString().trim() === spouseGene));
+          if (existing && existing[idKey]) {
+            spouseId = existing[idKey];
+            return null;
+          }
+          return fetch('/api/row', { method: 'POST' })
+            .then(res => {
+              if (!res.ok) throw new Error('Echec ajout ligne: ' + res.status);
+              return res.json();
+            })
+            .then(data => {
+              if (!data.ok) throw new Error(data.error || 'Ajout ligne échoué');
+              spouseId = data.row && data.row[idKey];
+              if (!spouseId) throw new Error('Nouvel ID conjoint introuvable');
+              return fetch(`/api/row/${encodeURIComponent(spouseId)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ field: geneKey, value: spouseGene })
+              });
+            })
+            .then(res => {
+              if (!res.ok) throw new Error('Echec update Gene conjoint: ' + res.status);
+              return res.json();
+            })
+            .then(data => {
+              if (!data.ok) throw new Error(data.error || 'Update conjoint échoué');
+            });
+        })
+        .then(() => {
+          if (!spouseId) throw new Error('ID conjoint introuvable');
+          statusEl.textContent = `Conjoint prêt (Gene=${spouseGene}).`;
+          trace(`Conjoint prêt: id=${spouseId}, Gene=${spouseGene}`);
+          if (window.opener && typeof window.opener.refreshFromDetail === 'function') {
+            try { window.opener.refreshFromDetail(); } catch (err) { console.warn(err); }
+          }
+          window.location.href = `QuiDetail.html?id=${encodeURIComponent(spouseId)}`;
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur ajout conjoint: ' + err.message);
+        })
+        .finally(() => {
+          addSpouseBtn.disabled = false;
+        });
+    }
+
+    function addSibling() {
+      if (!idKey || !currentRow[idKey]) return;
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      const nomKey = headers.find(h => h.toLowerCase() === 'nom');
+      if (!geneKey) {
+        statusEl.textContent = 'Erreur: colonne Gene absente.';
+        trace('Ajout frere/soeur annulé: colonne Gene absente');
+        return;
+      }
+      const rawGene = (currentRow[geneKey] ?? '').toString().trim();
+      if (!rawGene) {
+        statusEl.textContent = 'Erreur: Gene vide.';
+        trace('Ajout frere/soeur annulé: Gene vide');
+        return;
+      }
+      if (rawGene.endsWith('&0')) {
+        statusEl.textContent = 'Action impossible sur une fiche conjoint.';
+        trace('Ajout frere/soeur annulé: ligne conjoint');
+        return;
+      }
+
+      const baseGene = normalizeGeneBase(rawGene);
+      const siblingContext = extractSiblingContext(baseGene);
+      if (!siblingContext || !Number.isFinite(siblingContext.level)) {
+        statusEl.textContent = 'Erreur: Gene invalide pour créer un frère/soeur.';
+        trace(`Ajout frere/soeur annulé: Gene invalide (${baseGene})`);
+        return;
+      }
+
+      addSiblingBtn.disabled = true;
+      statusEl.textContent = 'Ajout frère/soeur...';
+
+      let siblingId = null;
+      let siblingGene = null;
+      const currentNom = nomKey ? (currentRow[nomKey] ?? '').toString() : '';
+
+      fetch('/api/data', { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec lecture data: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          const rows = data.rows || [];
+          const rank = findNextSiblingRank(rows, geneKey, siblingContext.parentPrefix, siblingContext.level);
+          if (!rank) throw new Error('Plus de rang frère/soeur disponible (a-z)');
+          siblingGene = `${siblingContext.parentPrefix}${siblingContext.level}${rank}&`;
+          return fetch('/api/row', { method: 'POST' });
+        })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec ajout ligne: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Ajout ligne échoué');
+          siblingId = data.row && data.row[idKey];
+          if (!siblingId) throw new Error('Nouvel ID frère/soeur introuvable');
+          return fetch(`/api/row/${encodeURIComponent(siblingId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field: geneKey, value: siblingGene })
+          });
+        })
+        .then(res => {
+          if (!res.ok) throw new Error('Echec update Gene frère/soeur: ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (!data.ok) throw new Error(data.error || 'Update frère/soeur échoué');
+          if (!nomKey) return { ok: true };
+          return fetch(`/api/row/${encodeURIComponent(siblingId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field: nomKey, value: currentNom })
+          })
+            .then(res => {
+              if (!res.ok) throw new Error('Echec update Nom frère/soeur: ' + res.status);
+              return res.json();
+            });
+        })
+        .then(data => {
+          if (data && data.ok === false) throw new Error(data.error || 'Update frère/soeur échoué');
+          statusEl.textContent = `Frère/soeur ajouté (Gene=${siblingGene}).`;
+          trace(`Frere/soeur ajouté: id=${siblingId}, Gene=${siblingGene}`);
+          if (window.opener && typeof window.opener.refreshFromDetail === 'function') {
+            try { window.opener.refreshFromDetail(); } catch (err) { console.warn(err); }
+          }
+          window.location.href = `QuiDetail.html?id=${encodeURIComponent(siblingId)}`;
+        })
+        .catch(err => {
+          statusEl.textContent = 'Erreur: ' + err.message;
+          trace('Erreur ajout frere/soeur: ' + err.message);
+        })
+        .finally(() => {
+          addSiblingBtn.disabled = false;
+        });
+    }
+
     if (!requestedId) {
       statusEl.textContent = 'Aucun identifiant fourni (paramètre id manquant).';
       trace('Paramètre id manquant');
@@ -313,6 +711,13 @@
 
     deleteBtn.addEventListener('click', deleteRow);
     addChildBtn.addEventListener('click', addChild);
+    addSpouseBtn.addEventListener('click', addSpouse);
+    addSiblingBtn.addEventListener('click', addSibling);
+    goParentBtn.addEventListener('click', goParent);
+    goSpouseBtn.addEventListener('click', goSpouse);
+    goFirstChildBtn.addEventListener('click', goFirstChild);
+    goNextSiblingBtn.addEventListener('click', () => goSibling(1));
+    goPrevSiblingBtn.addEventListener('click', () => goSibling(-1));
 
     function applyDigitConstraints(fieldName, input) {
       if (fieldName.endsWith('_AAAA')) {

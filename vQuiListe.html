@@ -16,6 +16,7 @@
 <body>
   <h1>Liste des entrées (vue)</h1>
   <div id="status">Chargement...</div>
+  <button id="synthese-btn" disabled>Synthese</button>
   <div style="margin:0.6rem 0; display:flex; gap:0.5rem; flex-wrap:wrap;">
     <input id="filter-gene" type="text" placeholder="Filtre Gene (contient)" />
     <input id="filter-nom" type="text" placeholder="Filtre début Nom" />
@@ -33,6 +34,7 @@
   <script src="Qui.js"></script>
   <script>
     const statusEl = document.getElementById('status');
+    const syntheseBtn = document.getElementById('synthese-btn');
     const filterGeneInput = document.getElementById('filter-gene');
     const filterNomInput = document.getElementById('filter-nom');
     const filterPrenomInput = document.getElementById('filter-prenom');
@@ -205,6 +207,7 @@
           dataset = { headers, rows };
           render(dataset.headers, dataset.rows);
           statusEl.textContent = msg;
+          syntheseBtn.disabled = false;
           trace(`CSV: ${dataset.rows.length} lignes reçues`);
         })
         .catch(err => {
@@ -252,11 +255,116 @@
         dataset = { headers, rows };
         render(headers, rows);
         statusEl.textContent = 'Affiché depuis Qui.js';
+        syntheseBtn.disabled = false;
       });
       return true;
     }
 
+    function findKey(name) {
+      const needle = name.toLowerCase();
+      return dataset.headers.find(h => h.toLowerCase() === needle);
+    }
+
+    function parseGeneSegments(gene) {
+      return String(gene || '')
+        .split(/[&#]/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    }
+
+    function compareGene(a, b) {
+      return a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' });
+    }
+
+    function buildPersonLabel(row, keys) {
+      const nom = (row[keys.nom] || '').trim();
+      const prenom = (row[keys.prenom] || '').trim();
+      const s = (row[keys.s] || '').trim();
+      const naissAaaa = (row[keys.naissAaaa] || '').trim();
+      const main = [nom, prenom].filter(Boolean).join(' ').trim() || '(sans nom)';
+      const bits = [main];
+      const bracket = [s, naissAaaa].filter(Boolean).join(' ');
+      if (bracket) bits.push(`[${bracket}]`);
+      return bits.join(' ');
+    }
+
+    function buildGeneTreeText() {
+      const keys = {
+        gene: findKey('gene'),
+        nom: findKey('nom'),
+        prenom: findKey('prenom'),
+        s: findKey('s'),
+        naissAaaa: findKey('naiss_aaaa'),
+      };
+      if (!keys.gene) return 'Impossible de generer la synthese: colonne Gene absente.';
+
+      const root = { token: null, row: null, children: new Map() };
+      const sorted = [...dataset.rows]
+        .filter(r => (r[keys.gene] || '').trim().length > 0)
+        .sort((a, b) => compareGene(a[keys.gene] || '', b[keys.gene] || ''));
+
+      sorted.forEach(row => {
+        const segs = parseGeneSegments(row[keys.gene]);
+        if (!segs.length) return;
+        let cursor = root;
+        segs.forEach(seg => {
+          if (!cursor.children.has(seg)) {
+            cursor.children.set(seg, { token: seg, row: null, children: new Map() });
+          }
+          cursor = cursor.children.get(seg);
+        });
+        if (!cursor.row) cursor.row = row;
+      });
+
+      const lines = [
+        `Arbre genealogique (${new Date().toISOString()})`,
+        '',
+      ];
+
+      function spouseInline(node) {
+        const spouseNode = node.children.get('0');
+        if (!spouseNode || !spouseNode.row) return '';
+        return `  & ${buildPersonLabel(spouseNode.row, keys)}`;
+      }
+
+      function walk(node, prefix, isLast) {
+        const connector = isLast ? '└─ ' : '├─ ';
+        const label = node.row ? ` ${buildPersonLabel(node.row, keys)}` : '';
+        lines.push(`${prefix}${connector}${node.token}${label}${spouseInline(node)}`);
+        const children = Array.from(node.children.values())
+          .filter(child => child.token !== '0')
+          .sort((a, b) => compareGene(a.token, b.token));
+        const childPrefix = `${prefix}${isLast ? '   ' : '│  '}`;
+        children.forEach((child, idx) => walk(child, childPrefix, idx === children.length - 1));
+      }
+
+      const roots = Array.from(root.children.values()).sort((a, b) => compareGene(a.token, b.token));
+      roots.forEach((node, idx) => walk(node, '', idx === roots.length - 1));
+      if (!roots.length) lines.push('(aucune donnee)');
+
+      return lines.join('\n');
+    }
+
+    function openSynthese() {
+      if (!dataset.rows.length) {
+        statusEl.textContent = 'Synthese impossible: aucune donnee.';
+        return;
+      }
+      const content = buildGeneTreeText();
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank', 'noopener');
+      if (!win) {
+        statusEl.textContent = 'Synthese: popup bloquee par le navigateur.';
+        URL.revokeObjectURL(url);
+        return;
+      }
+      statusEl.textContent = 'Synthese ouverte dans un nouvel onglet.';
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+    }
+
     setupFilters();
+    syntheseBtn.addEventListener('click', openSynthese);
     if (!loadFromJs()) {
       loadData();
     }

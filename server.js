@@ -75,9 +75,11 @@ function buildPersonLabel(row, keys) {
   const nom = (row[keys.nom] || '').trim();
   const prenom = (row[keys.prenom] || '').trim();
   const s = (row[keys.s] || '').trim();
+  const naissAaaa = (row[keys.naissAaaa] || '').trim();
   const main = [nom, prenom].filter(Boolean).join(' ').trim() || '(sans nom)';
   const bits = [main];
-  if (s) bits.push(`[${s}]`);
+  const bracket = [s, naissAaaa].filter(Boolean).join(' ');
+  if (bracket) bits.push(`[${bracket}]`);
   return bits.join(' ');
 }
 
@@ -88,6 +90,7 @@ function buildGeneTreeText() {
     nom: findKey('nom'),
     prenom: findKey('prenom'),
     s: findKey('s'),
+    naissAaaa: findKey('naiss_aaaa'),
   };
   if (!keys.gene) {
     return 'Impossible de generer qui.txt: colonne "Gene" absente.';
