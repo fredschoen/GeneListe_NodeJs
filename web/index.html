@@ -11,6 +11,14 @@
     th { background: blue; }
     th button { all: unset; color: white; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
     th img { width: 14px; height: 14px; filter: invert(1); }
+    button { min-height: 34px; padding: 0.35rem 0.6rem; }
+    input, select { min-height: 34px; }
+    @media (max-width: 768px) {
+      body { margin: 0.9rem; }
+      button { min-height: 48px; padding: 0.6rem 0.9rem; font-size: 1rem; }
+      input, select { min-height: 44px; font-size: 1rem; }
+      th, td { padding: 0.55rem 0.45rem; }
+    }
   </style>
 </head>
 <body>
@@ -19,6 +27,7 @@
   <button id="synthese-btn" disabled>Synthese</button>
   <div style="margin:0.6rem 0; display:flex; gap:0.5rem; flex-wrap:wrap;">
     <input id="filter-gene" type="text" placeholder="Filtre Gene (contient)" />
+    <input id="filter-info" type="text" placeholder="Filtre Info (contient)" />
     <select id="filter-gen-startLevel" aria-label="Filtre generation debut">
       <option value="">Gene deb: tout</option>
       <option value="1">Gene deb = 1</option>
@@ -55,6 +64,7 @@
     const statusEl = document.getElementById('status');
     const syntheseBtn = document.getElementById('synthese-btn');
     const filterGeneInput = document.getElementById('filter-gene');
+    const filterInfoInput = document.getElementById('filter-info');
     const filterGenStartLevelInput = document.getElementById('filter-gen-startLevel');
     const filterGenEndLevelInput = document.getElementById('filter-gen-endLevel');
     const filterNomInput = document.getElementById('filter-nom');
@@ -70,7 +80,7 @@
     let dataset = { headers: [], rows: [] };
     let sortKey = null;
     let sortAsc = true;
-    let filters = { gene: '', genStartLevel: '', genEndLevel: '', nom: '', prenom: '', s: '', naissStart: '', naissEnd: '' };
+    let filters = { gene: '', info: '', genStartLevel: '', genEndLevel: '', nom: '', prenom: '', s: '', naissStart: '', naissEnd: '' };
 
     function trace(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
@@ -82,6 +92,7 @@
       const onFilterChange = () => {
         filters = {
           gene: normalizeFilter(filterGeneInput.value),
+          info: normalizeFilter(filterInfoInput.value),
           genStartLevel: normalizeStartGenerationFilter(filterGenStartLevelInput.value),
           genEndLevel: normalizeEndGenerationFilter(filterGenEndLevelInput.value),
           nom: normalizeFilter(filterNomInput.value),
@@ -94,6 +105,7 @@
         render(dataset.headers, dataset.rows);
       };
       filterGeneInput.addEventListener('input', onFilterChange);
+      filterInfoInput.addEventListener('input', onFilterChange);
       filterGenStartLevelInput.addEventListener('change', onFilterChange);
       filterGenEndLevelInput.addEventListener('change', onFilterChange);
       filterNomInput.addEventListener('input', onFilterChange);
@@ -141,6 +153,7 @@
       thead.innerHTML = '';
       tbody.innerHTML = '';
       const idKey = headers.find(h => h.toLowerCase() === 'id');
+      const nomKey = headers.find(h => h.toLowerCase() === 'nom');
       const visibleHeaders = headers.filter(h => h !== idKey && !/_(jj|mm)$/i.test(h));
       if ((!sortKey || !visibleHeaders.includes(sortKey)) && visibleHeaders.length) {
         sortKey = visibleHeaders[0];
@@ -162,9 +175,6 @@
         th.appendChild(btn);
         trHead.appendChild(th);
       });
-      const thAction = document.createElement('th');
-      thAction.textContent = 'Action';
-      trHead.appendChild(thAction);
       thead.appendChild(trHead);
 
       const filteredRows = applyFilters(rows, headers);
@@ -174,22 +184,19 @@
         const tr = document.createElement('tr');
         visibleHeaders.forEach(h => {
           const td = document.createElement('td');
-          td.textContent = row[h] ?? '';
+          if (idKey && row[idKey] && nomKey && h === nomKey) {
+            const params = buildListStateParams();
+            params.set('id', row[idKey]);
+            const link = document.createElement('a');
+            link.href = `vQuiDetail.html?${params.toString()}`;
+            link.textContent = row[h] ?? '';
+            td.appendChild(link);
+          } else {
+            td.textContent = row[h] ?? '';
+          }
           applyWidth(h, td);
           tr.appendChild(td);
         });
-        const tdAction = document.createElement('td');
-        if (idKey && row[idKey]) {
-          const btnDetail = document.createElement('button');
-          btnDetail.textContent = 'Détail';
-          btnDetail.addEventListener('click', () => {
-            const params = buildListStateParams();
-            params.set('id', row[idKey]);
-            window.location.href = `vQuiDetail.html?${params.toString()}`;
-          });
-          tdAction.appendChild(btnDetail);
-        }
-        tr.appendChild(tdAction);
         tbody.appendChild(tr);
       });
       table.hidden = false;
@@ -211,6 +218,7 @@
 
     function applyFilters(rows, headers) {
       const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      const infoKey = headers.find(h => h.toLowerCase() === 'info');
       const nomKey = headers.find(h => h.toLowerCase() === 'nom');
       const prenomKey = headers.find(h => h.toLowerCase() === 'prenom');
       const sKey = headers.find(h => h.toLowerCase() === 's');
@@ -221,6 +229,7 @@
       const endYear = filters.naissEnd ? Number(filters.naissEnd) : null;
       return rows.filter(row => {
         if (filters.gene && !normalizeFilter(row[geneKey]).includes(filters.gene)) return false;
+        if (filters.info && !normalizeFilter(row[infoKey]).includes(filters.info)) return false;
         if (minGeneration !== null) {
           const depth = extractGenerationDepth(row[geneKey]);
           if (!depth || depth < minGeneration) return false;
@@ -260,6 +269,7 @@
       if (sortKey) params.set('sortKey', sortKey);
       params.set('sortAsc', sortAsc ? '1' : '0');
       if (filters.gene) params.set('gene', filters.gene);
+      if (filters.info) params.set('info', filters.info);
       if (filters.genStartLevel) params.set('genStartLevel', filters.genStartLevel);
       if (filters.genEndLevel) params.set('genEndLevel', filters.genEndLevel);
       if (filters.nom) params.set('nom', filters.nom);
@@ -280,6 +290,7 @@
     function restoreListStateFromUrl(headers) {
       const initialFilters = {
         gene: normalizeFilter(urlParams.get('gene')),
+        info: normalizeFilter(urlParams.get('info')),
         genStartLevel: normalizeStartGenerationFilter(urlParams.get('genStartLevel')),
         genEndLevel: normalizeEndGenerationFilter(urlParams.get('genEndLevel')),
         nom: normalizeFilter(urlParams.get('nom')),
@@ -290,6 +301,7 @@
       };
       filters = initialFilters;
       filterGeneInput.value = filters.gene;
+      filterInfoInput.value = filters.info;
       filterGenStartLevelInput.value = filters.genStartLevel;
       filterGenEndLevelInput.value = filters.genEndLevel;
       filterNomInput.value = filters.nom;
@@ -355,6 +367,8 @@
 
     function applyWidth(fieldName, td) {
       if (fieldName === 'ID') {
+        td.style.width = '20px';
+      } else if (fieldName === 'S') {
         td.style.width = '20px';
       } else if (fieldName.endsWith('_AAAA')) {
         td.style.width = '60px';

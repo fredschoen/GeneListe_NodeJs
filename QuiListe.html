@@ -232,6 +232,7 @@
         const tr = document.createElement('tr');
         visibleHeaders.forEach(h => {
           const td = document.createElement('td');
+          if (h === 'S') td.style.width = '20px';
           const input = document.createElement('input');
           input.type = 'text';
           input.value = row[h] ?? '';
@@ -376,7 +377,7 @@
         input.maxLength = 1;
         input.placeholder = 'M/F';
         input.pattern = '[MF]';
-        input.style.width = '40px';
+        input.style.width = '20px';
         input.addEventListener('keydown', enforceSexKey);
         input.addEventListener('paste', enforceSexPaste);
         input.addEventListener('input', () => {
