@@ -19,6 +19,25 @@
   <button id="synthese-btn" disabled>Synthese</button>
   <div style="margin:0.6rem 0; display:flex; gap:0.5rem; flex-wrap:wrap;">
     <input id="filter-gene" type="text" placeholder="Filtre Gene (contient)" />
+    <select id="filter-gen-startLevel" aria-label="Filtre generation debut">
+      <option value="">Gene deb: tout</option>
+      <option value="1">Gene deb = 1</option>
+      <option value="2">Gene deb = 2</option>
+      <option value="3">Gene deb = 3</option>
+      <option value="4">Gene deb = 4</option>
+      <option value="5">Gene deb = 5</option>
+      <option value="6">Gene deb = 6</option>
+      <option value="7">Gene deb = 7</option>
+    </select>
+    <select id="filter-gen-endLevel" aria-label="Filtre generation fin">
+      <option value="">Gene fin: tout</option>
+      <option value="2">Gene fin = 2</option>
+      <option value="3">Gene fin = 3</option>
+      <option value="4">Gene fin = 4</option>
+      <option value="5">Gene fin = 5</option>
+      <option value="6">Gene fin = 6</option>
+      <option value="7">Gene fin = 7</option>
+    </select>
     <input id="filter-nom" type="text" placeholder="Filtre début Nom" />
     <input id="filter-prenom" type="text" placeholder="Filtre début Prenom" />
     <input id="filter-s" type="text" placeholder="Filtre S (M/F)" />
@@ -36,6 +55,8 @@
     const statusEl = document.getElementById('status');
     const syntheseBtn = document.getElementById('synthese-btn');
     const filterGeneInput = document.getElementById('filter-gene');
+    const filterGenStartLevelInput = document.getElementById('filter-gen-startLevel');
+    const filterGenEndLevelInput = document.getElementById('filter-gen-endLevel');
     const filterNomInput = document.getElementById('filter-nom');
     const filterPrenomInput = document.getElementById('filter-prenom');
     const filterSInput = document.getElementById('filter-s');
@@ -45,10 +66,11 @@
     const table = document.getElementById('table');
     const thead = table.querySelector('thead');
     const tbody = table.querySelector('tbody');
+    const urlParams = new URLSearchParams(window.location.search);
     let dataset = { headers: [], rows: [] };
     let sortKey = null;
     let sortAsc = true;
-    let filters = { gene: '', nom: '', prenom: '', s: '', naissStart: '', naissEnd: '' };
+    let filters = { gene: '', genStartLevel: '', genEndLevel: '', nom: '', prenom: '', s: '', naissStart: '', naissEnd: '' };
 
     function trace(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
@@ -60,15 +82,20 @@
       const onFilterChange = () => {
         filters = {
           gene: normalizeFilter(filterGeneInput.value),
+          genStartLevel: normalizeStartGenerationFilter(filterGenStartLevelInput.value),
+          genEndLevel: normalizeEndGenerationFilter(filterGenEndLevelInput.value),
           nom: normalizeFilter(filterNomInput.value),
           prenom: normalizeFilter(filterPrenomInput.value),
           s: normalizeSexValue(filterSInput.value),
           naissStart: normalizeYearFilter(filterNaissStartInput.value),
           naissEnd: normalizeYearFilter(filterNaissEndInput.value)
         };
+        syncListStateInUrl();
         render(dataset.headers, dataset.rows);
       };
       filterGeneInput.addEventListener('input', onFilterChange);
+      filterGenStartLevelInput.addEventListener('change', onFilterChange);
+      filterGenEndLevelInput.addEventListener('change', onFilterChange);
       filterNomInput.addEventListener('input', onFilterChange);
       filterPrenomInput.addEventListener('input', onFilterChange);
       filterSInput.addEventListener('input', onFilterChange);
@@ -89,12 +116,32 @@
       return normalized.slice(0, 1);
     }
 
+    function normalizeStartGenerationFilter(value) {
+      const raw = (value ?? '').toString().trim();
+      if (!/^[1-7]$/.test(raw)) return '';
+      return raw;
+    }
+
+    function normalizeEndGenerationFilter(value) {
+      const raw = (value ?? '').toString().trim();
+      if (!/^[2-7]$/.test(raw)) return '';
+      return raw;
+    }
+
+    function extractGenerationDepth(geneValue) {
+      const gene = (geneValue ?? '').toString();
+      const matches = Array.from(gene.matchAll(/&(\d+)[a-z]+/gi));
+      if (!matches.length) return 0;
+      const levels = matches.map(m => Number(m[1])).filter(n => Number.isFinite(n));
+      return levels.length ? Math.max(...levels) : 0;
+    }
+
     function render(headers, rows) {
       trace('render appelée');
       thead.innerHTML = '';
       tbody.innerHTML = '';
       const idKey = headers.find(h => h.toLowerCase() === 'id');
-      const visibleHeaders = headers.filter(h => h !== idKey);
+      const visibleHeaders = headers.filter(h => h !== idKey && !/_(jj|mm)$/i.test(h));
       if ((!sortKey || !visibleHeaders.includes(sortKey)) && visibleHeaders.length) {
         sortKey = visibleHeaders[0];
         sortAsc = true;
@@ -136,7 +183,9 @@
           const btnDetail = document.createElement('button');
           btnDetail.textContent = 'Détail';
           btnDetail.addEventListener('click', () => {
-            window.open(`vQuiDetail.html?id=${encodeURIComponent(row[idKey])}`, '_blank');
+            const params = buildListStateParams();
+            params.set('id', row[idKey]);
+            window.location.href = `vQuiDetail.html?${params.toString()}`;
           });
           tdAction.appendChild(btnDetail);
         }
@@ -166,10 +215,20 @@
       const prenomKey = headers.find(h => h.toLowerCase() === 'prenom');
       const sKey = headers.find(h => h.toLowerCase() === 's');
       const naissKey = headers.find(h => h.toLowerCase() === 'naiss_aaaa');
+      const minGeneration = filters.genStartLevel ? Number(filters.genStartLevel) : null;
+      const maxGeneration = filters.genEndLevel ? Number(filters.genEndLevel) : null;
       const startYear = filters.naissStart ? Number(filters.naissStart) : null;
       const endYear = filters.naissEnd ? Number(filters.naissEnd) : null;
       return rows.filter(row => {
         if (filters.gene && !normalizeFilter(row[geneKey]).includes(filters.gene)) return false;
+        if (minGeneration !== null) {
+          const depth = extractGenerationDepth(row[geneKey]);
+          if (!depth || depth < minGeneration) return false;
+        }
+        if (maxGeneration !== null) {
+          const depth = extractGenerationDepth(row[geneKey]);
+          if (!depth || depth > maxGeneration) return false;
+        }
         if (filters.nom && !normalizeFilter(row[nomKey]).startsWith(filters.nom)) return false;
         if (filters.prenom && !normalizeFilter(row[prenomKey]).startsWith(filters.prenom)) return false;
         if (filters.s && normalizeSexValue(row[sKey]) !== filters.s) return false;
@@ -192,7 +251,62 @@
         sortKey = key;
         sortAsc = true;
       }
+      syncListStateInUrl();
       render(dataset.headers, dataset.rows);
+    }
+
+    function buildListStateParams() {
+      const params = new URLSearchParams();
+      if (sortKey) params.set('sortKey', sortKey);
+      params.set('sortAsc', sortAsc ? '1' : '0');
+      if (filters.gene) params.set('gene', filters.gene);
+      if (filters.genStartLevel) params.set('genStartLevel', filters.genStartLevel);
+      if (filters.genEndLevel) params.set('genEndLevel', filters.genEndLevel);
+      if (filters.nom) params.set('nom', filters.nom);
+      if (filters.prenom) params.set('prenom', filters.prenom);
+      if (filters.s) params.set('s', filters.s);
+      if (filters.naissStart) params.set('naissStart', filters.naissStart);
+      if (filters.naissEnd) params.set('naissEnd', filters.naissEnd);
+      return params;
+    }
+
+    function syncListStateInUrl() {
+      const params = buildListStateParams();
+      const qs = params.toString();
+      const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+      window.history.replaceState(null, '', next);
+    }
+
+    function restoreListStateFromUrl(headers) {
+      const initialFilters = {
+        gene: normalizeFilter(urlParams.get('gene')),
+        genStartLevel: normalizeStartGenerationFilter(urlParams.get('genStartLevel')),
+        genEndLevel: normalizeEndGenerationFilter(urlParams.get('genEndLevel')),
+        nom: normalizeFilter(urlParams.get('nom')),
+        prenom: normalizeFilter(urlParams.get('prenom')),
+        s: normalizeSexValue(urlParams.get('s')),
+        naissStart: normalizeYearFilter(urlParams.get('naissStart')),
+        naissEnd: normalizeYearFilter(urlParams.get('naissEnd'))
+      };
+      filters = initialFilters;
+      filterGeneInput.value = filters.gene;
+      filterGenStartLevelInput.value = filters.genStartLevel;
+      filterGenEndLevelInput.value = filters.genEndLevel;
+      filterNomInput.value = filters.nom;
+      filterPrenomInput.value = filters.prenom;
+      filterSInput.value = filters.s;
+      filterNaissStartInput.value = filters.naissStart;
+      filterNaissEndInput.value = filters.naissEnd;
+
+      const urlSortKey = (urlParams.get('sortKey') || '').trim();
+      const idKey = headers.find(h => h.toLowerCase() === 'id');
+      const visibleHeaders = headers.filter(h => h !== idKey && !/_(jj|mm)$/i.test(h));
+      if (urlSortKey && visibleHeaders.includes(urlSortKey)) {
+        sortKey = urlSortKey;
+      }
+      const sortAscParam = urlParams.get('sortAsc');
+      if (sortAscParam === '0') sortAsc = false;
+      if (sortAscParam === '1') sortAsc = true;
     }
 
     function loadData(msg = 'Chargé.') {
@@ -205,7 +319,9 @@
         .then(text => {
           const { headers, rows } = parseCSV(text);
           dataset = { headers, rows };
+          restoreListStateFromUrl(headers);
           render(dataset.headers, dataset.rows);
+          syncListStateInUrl();
           statusEl.textContent = msg;
           syntheseBtn.disabled = false;
           trace(`CSV: ${dataset.rows.length} lignes reçues`);
@@ -234,7 +350,7 @@
     }
 
     function csvPath() {
-      return 'Data/Qui.csv';
+      return 'qui.csv';
     }
 
     function applyWidth(fieldName, td) {
@@ -253,7 +369,9 @@
       trace('Chargement des données statiques Qui.js');
       window.renderJs((headers, rows) => {
         dataset = { headers, rows };
-        render(headers, rows);
+        restoreListStateFromUrl(headers);
+        render(dataset.headers, dataset.rows);
+        syncListStateInUrl();
         statusEl.textContent = 'Affiché depuis Qui.js';
         syntheseBtn.disabled = false;
       });
@@ -351,16 +469,36 @@
         return;
       }
       const content = buildGeneTreeText();
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const listUrl = window.location.href;
+      const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Synthese</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 1rem; }
+    pre { white-space: pre; overflow: auto; border: 1px solid #ccc; padding: 0.75rem; }
+    a { display: inline-block; margin-bottom: 0.8rem; }
+  </style>
+</head>
+<body>
+  <a href="${escapeHtml(listUrl)}">Retour à la liste</a>
+  <pre>${escapeHtml(content)}</pre>
+</body>
+</html>`;
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank', 'noopener');
-      if (!win) {
-        statusEl.textContent = 'Synthese: popup bloquee par le navigateur.';
-        URL.revokeObjectURL(url);
-        return;
-      }
-      statusEl.textContent = 'Synthese ouverte dans un nouvel onglet.';
-      setTimeout(() => URL.revokeObjectURL(url), 15000);
+      window.location.href = url;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     setupFilters();

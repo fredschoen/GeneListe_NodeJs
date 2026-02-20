@@ -14,6 +14,7 @@
 <body>
   <h1>Détail (vue)</h1>
   <div id="status">Chargement...</div>
+  <button id="back-to-list-btn">Revenir à la liste</button>
   <button id="go-parent-btn" disabled>Aller à parent</button>
   <button id="go-spouse-btn" disabled>Aller à conjoint</button>
   <button id="go-first-child-btn" disabled>Aller à 1er enfant</button>
@@ -29,6 +30,7 @@
     const params = new URLSearchParams(window.location.search);
     const requestedId = params.get('id');
     const statusEl = document.getElementById('status');
+    const backToListBtn = document.getElementById('back-to-list-btn');
     const traceEl = document.getElementById('trace');
     const goParentBtn = document.getElementById('go-parent-btn');
     const goSpouseBtn = document.getElementById('go-spouse-btn');
@@ -265,7 +267,14 @@
     }
 
     function csvPath() {
-      return 'Data/Qui.csv';
+      return 'qui.csv';
+    }
+
+    function getListUrlFromCurrentParams() {
+      const listParams = new URLSearchParams(window.location.search);
+      listParams.delete('id');
+      const qs = listParams.toString();
+      return qs ? `index.html?${qs}` : 'index.html';
     }
 
     function loadFromJs() {
@@ -296,6 +305,9 @@
     goFirstChildBtn.addEventListener('click', goFirstChild);
     goNextSiblingBtn.addEventListener('click', () => goSibling(1));
     goPrevSiblingBtn.addEventListener('click', () => goSibling(-1));
+    backToListBtn.addEventListener('click', () => {
+      window.location.href = getListUrlFromCurrentParams();
+    });
   </script>
 </body>
 </html>

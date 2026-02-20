@@ -199,7 +199,7 @@
       thead.innerHTML = '';
       tbody.innerHTML = '';
       const idKey = headers.find(h => h.toLowerCase() === 'id');
-      const visibleHeaders = headers.filter(h => h !== idKey);
+      const visibleHeaders = headers.filter(h => h !== idKey && !/_(jj|mm)$/i.test(h));
       if ((!sortKey || !visibleHeaders.includes(sortKey)) && visibleHeaders.length) {
         sortKey = visibleHeaders[0];
         sortAsc = true;
