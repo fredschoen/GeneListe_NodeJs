@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GeneListe - Liste hierarchique</title>
+  <style>
+    :root {
+      --bg: #0b0b0b;
+      --panel: #141414;
+      --line: #343434;
+      --text: #f2f2f2;
+      --muted: #a9a9a9;
+      --accent: #d7ff63;
+      --link: #8ec5ff;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #1f1f1f 0%, var(--bg) 50%);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.25rem;
+    }
+
+    .topbar {
+      display: flex;
+      gap: 0.8rem;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    .backlink {
+      color: var(--link);
+      text-decoration: none;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .tree {
+      background: rgba(20, 20, 20, 0.96);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 1rem;
+      overflow-x: auto;
+      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
+    }
+
+    .tree-root {
+      display: grid;
+      gap: 0.24rem;
+    }
+
+    .node {
+      margin-left: 0.2rem;
+      padding-left: 0.8rem;
+      border-left: 1px solid rgba(255, 255, 255, 0.09);
+    }
+
+    .node.root {
+      margin-left: 0;
+      padding-left: 0;
+      border-left: 0;
+    }
+
+    .node details {
+      margin: 0.18rem 0;
+    }
+
+    .node summary {
+      cursor: pointer;
+      list-style: none;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.45rem;
+      padding: 0.2rem 0.35rem;
+      border-radius: 8px;
+    }
+
+    .node summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .node summary:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .marker {
+      color: var(--accent);
+      font-family: Consolas, "Courier New", monospace;
+      width: 1.1rem;
+      text-align: center;
+      flex: 0 0 1.1rem;
+    }
+
+    .token {
+      color: var(--accent);
+      font-family: Consolas, "Courier New", monospace;
+      min-width: 1.8rem;
+    }
+
+    .label {
+      color: var(--text);
+    }
+
+    .label-link {
+      color: var(--text);
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(255, 255, 255, 0.2);
+    }
+
+    .label-link:hover {
+      color: var(--link);
+      border-bottom-color: var(--link);
+    }
+
+    .spouse {
+      color: var(--muted);
+      margin-left: 0.5rem;
+    }
+
+    .leaf {
+      display: flex;
+      align-items: baseline;
+      gap: 0.45rem;
+      padding: 0.2rem 0.35rem;
+      border-radius: 8px;
+    }
+
+    .leaf:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .children {
+      margin-left: 0.95rem;
+      padding-left: 0.45rem;
+      display: grid;
+      gap: 0.14rem;
+    }
+
+    .empty {
+      color: var(--muted);
+    }
+
+    .accent {
+      color: var(--accent);
+    }
+
+    @media (max-width: 768px) {
+      main {
+        padding: 0.9rem;
+      }
+
+      .tree {
+        padding: 0.8rem;
+        border-radius: 10px;
+      }
+
+      .children {
+        margin-left: 0.7rem;
+        padding-left: 0.3rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="topbar">
+      <a id="back-link" class="backlink" href="index.html">Retour à la liste</a>
+      <div id="meta" class="meta">Chargement...</div>
+    </div>
+    <div class="tree">
+      <div id="content" class="tree-root empty">Chargement...</div>
+    </div>
+  </main>
+
+  <script src="Qui.js"></script>
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const contentEl = document.getElementById('content');
+    const metaEl = document.getElementById('meta');
+    const backLinkEl = document.getElementById('back-link');
+
+    let dataset = { headers: [], rows: [] };
+    let filters = {
+      gene: '',
+      info: '',
+      genStartLevel: '',
+      genEndLevel: '',
+      nom: '',
+      prenom: '',
+      s: '',
+      naissStart: '',
+      naissEnd: ''
+    };
+
+    function normalizeFilter(value) {
+      return (value ?? '').toString().trim().toLowerCase();
+    }
+
+    function normalizeYearFilter(value) {
+      return (value ?? '').toString().replace(/\D+/g, '').slice(0, 4);
+    }
+
+    function normalizeSexValue(value) {
+      const normalized = (value ?? '').toString().toUpperCase().replace(/[^MF]/g, '');
+      return normalized.slice(0, 1);
+    }
+
+    function normalizeStartGenerationFilter(value) {
+      const raw = (value ?? '').toString().trim();
+      if (!/^[1-7]$/.test(raw)) return '';
+      return raw;
+    }
+
+    function normalizeEndGenerationFilter(value) {
+      const raw = (value ?? '').toString().trim();
+      if (!/^[2-7]$/.test(raw)) return '';
+      return raw;
+    }
+
+    function extractGenerationDepth(geneValue) {
+      const gene = (geneValue ?? '').toString();
+      const matches = Array.from(gene.matchAll(/&(\d+)[a-z]+/gi));
+      if (!matches.length) return 0;
+      const levels = matches.map(m => Number(m[1])).filter(n => Number.isFinite(n));
+      return levels.length ? Math.max(...levels) : 0;
+    }
+
+    function applyFilters(rows, headers) {
+      const geneKey = headers.find(h => h.toLowerCase() === 'gene');
+      const infoKey = headers.find(h => h.toLowerCase() === 'info');
+      const nomKey = headers.find(h => h.toLowerCase() === 'nom');
+      const prenomKey = headers.find(h => h.toLowerCase() === 'prenom');
+      const sKey = headers.find(h => h.toLowerCase() === 's');
+      const naissKey = headers.find(h => h.toLowerCase() === 'naiss_aaaa');
+      const minGeneration = filters.genStartLevel ? Number(filters.genStartLevel) : null;
+      const maxGeneration = filters.genEndLevel ? Number(filters.genEndLevel) : null;
+      const startYear = filters.naissStart ? Number(filters.naissStart) : null;
+      const endYear = filters.naissEnd ? Number(filters.naissEnd) : null;
+
+      return rows.filter(row => {
+        if (filters.gene && !normalizeFilter(row[geneKey]).includes(filters.gene)) return false;
+        if (filters.info && !normalizeFilter(row[infoKey]).includes(filters.info)) return false;
+        if (minGeneration !== null) {
+          const depth = extractGenerationDepth(row[geneKey]);
+          if (!depth || depth < minGeneration) return false;
+        }
+        if (maxGeneration !== null) {
+          const depth = extractGenerationDepth(row[geneKey]);
+          if (!depth || depth > maxGeneration) return false;
+        }
+        if (filters.nom && !normalizeFilter(row[nomKey]).startsWith(filters.nom)) return false;
+        if (filters.prenom && !normalizeFilter(row[prenomKey]).startsWith(filters.prenom)) return false;
+        if (filters.s && normalizeSexValue(row[sKey]) !== filters.s) return false;
+        if (startYear !== null || endYear !== null) {
+          const yearValue = normalizeYearFilter(row[naissKey]);
+          if (!yearValue) return false;
+          const year = Number(yearValue);
+          if (!Number.isFinite(year)) return false;
+          if (startYear !== null && year < startYear) return false;
+          if (endYear !== null && year > endYear) return false;
+        }
+        return true;
+      });
+    }
+
+    function findKey(name) {
+      const needle = name.toLowerCase();
+      return dataset.headers.find(h => h.toLowerCase() === needle);
+    }
+
+    function parseGeneSegments(gene) {
+      return String(gene || '')
+        .split(/[&#]/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    }
+
+    function compareGene(a, b) {
+      return a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' });
+    }
+
+    function buildPersonLabel(row, keys) {
+      const nom = (row[keys.nom] || '').trim();
+      const prenom = (row[keys.prenom] || '').trim();
+      const s = (row[keys.s] || '').trim();
+      const naissAaaa = (row[keys.naissAaaa] || '').trim();
+      const main = [nom, prenom].filter(Boolean).join(' ').trim() || '(sans nom)';
+      const bits = [main];
+      const bracket = [s, naissAaaa].filter(Boolean).join(' ');
+      if (bracket) bits.push(`[${bracket}]`);
+      return bits.join(' ');
+    }
+
+    function findIdKey() {
+      return dataset.headers.find(h => h.toLowerCase() === 'id');
+    }
+
+    function buildListStateParams() {
+      const params = new URLSearchParams();
+      if (filters.gene) params.set('gene', filters.gene);
+      if (filters.info) params.set('info', filters.info);
+      if (filters.genStartLevel) params.set('genStartLevel', filters.genStartLevel);
+      if (filters.genEndLevel) params.set('genEndLevel', filters.genEndLevel);
+      if (filters.nom) params.set('nom', filters.nom);
+      if (filters.prenom) params.set('prenom', filters.prenom);
+      if (filters.s) params.set('s', filters.s);
+      if (filters.naissStart) params.set('naissStart', filters.naissStart);
+      if (filters.naissEnd) params.set('naissEnd', filters.naissEnd);
+      return params;
+    }
+
+    function buildDetailHref(row) {
+      const idKey = findIdKey();
+      if (!idKey || !row || !row[idKey]) return '';
+      const params = buildListStateParams();
+      params.set('id', row[idKey]);
+      return `vQuiDetail.html?${params.toString()}`;
+    }
+
+    function createLabelNode(text, row) {
+      const href = buildDetailHref(row);
+      if (!href) {
+        const span = document.createElement('span');
+        span.className = 'label';
+        span.textContent = text;
+        return span;
+      }
+      const link = document.createElement('a');
+      link.className = 'label-link';
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = text;
+      return link;
+    }
+
+    function createSpouseNode(text, row) {
+      const href = buildDetailHref(row);
+      if (!href) {
+        const span = document.createElement('span');
+        span.className = 'spouse';
+        span.textContent = `& ${text}`;
+        return span;
+      }
+      const link = document.createElement('a');
+      link.className = 'spouse label-link';
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = `& ${text}`;
+      return link;
+    }
+
+    function buildGeneTreeData() {
+      const keys = {
+        gene: findKey('gene'),
+        nom: findKey('nom'),
+        prenom: findKey('prenom'),
+        s: findKey('s'),
+        naissAaaa: findKey('naiss_aaaa'),
+      };
+      if (!keys.gene) {
+        return {
+          error: 'Impossible de generer la ListeHiera: colonne Gene absente.',
+          count: 0,
+          roots: [],
+          keys
+        };
+      }
+
+      const filteredRows = applyFilters(dataset.rows, dataset.headers);
+      const root = { token: null, row: null, children: new Map() };
+      const sorted = [...filteredRows]
+        .filter(r => (r[keys.gene] || '').trim().length > 0)
+        .sort((a, b) => compareGene(a[keys.gene] || '', b[keys.gene] || ''));
+
+      sorted.forEach(row => {
+        const segs = parseGeneSegments(row[keys.gene]);
+        if (!segs.length) return;
+        let cursor = root;
+        segs.forEach(seg => {
+          if (!cursor.children.has(seg)) {
+            cursor.children.set(seg, { token: seg, row: null, children: new Map() });
+          }
+          cursor = cursor.children.get(seg);
+        });
+        if (!cursor.row) cursor.row = row;
+      });
+      const roots = Array.from(root.children.values()).sort((a, b) => compareGene(a.token, b.token));
+      return { roots, count: filteredRows.length, keys, error: '' };
+    }
+
+    function buildNodeText(node, keys) {
+      const label = node.row ? buildPersonLabel(node.row, keys) : '(sans donnee)';
+      const spouseNode = node.children.get('0');
+      const spouseLabel = spouseNode && spouseNode.row ? buildPersonLabel(spouseNode.row, keys) : '';
+      return { label, spouseLabel, spouseRow: spouseNode ? spouseNode.row : null };
+    }
+
+    function createNodeElement(node, keys, depth) {
+      const children = Array.from(node.children.values())
+        .filter(child => child.token !== '0')
+        .sort((a, b) => compareGene(a.token, b.token));
+      const text = buildNodeText(node, keys);
+
+      if (!children.length) {
+        const leaf = document.createElement('div');
+        leaf.className = 'leaf';
+
+        const marker = document.createElement('span');
+        marker.className = 'marker';
+        marker.textContent = '•';
+        leaf.appendChild(marker);
+
+        const token = document.createElement('span');
+        token.className = 'token';
+        token.textContent = node.token;
+        leaf.appendChild(token);
+
+        const label = createLabelNode(text.label, node.row);
+        leaf.appendChild(label);
+
+        if (text.spouseLabel) {
+          leaf.appendChild(createSpouseNode(text.spouseLabel, text.spouseRow));
+        }
+
+        return leaf;
+      }
+
+      const details = document.createElement('details');
+      if (depth < 2) details.open = true;
+
+      const summary = document.createElement('summary');
+
+      const marker = document.createElement('span');
+      marker.className = 'marker';
+      marker.textContent = details.open ? '−' : '+';
+      summary.appendChild(marker);
+
+      const token = document.createElement('span');
+      token.className = 'token';
+      token.textContent = node.token;
+      summary.appendChild(token);
+
+      const label = createLabelNode(text.label, node.row);
+      summary.appendChild(label);
+
+      if (text.spouseLabel) {
+        summary.appendChild(createSpouseNode(text.spouseLabel, text.spouseRow));
+      }
+
+      details.addEventListener('toggle', () => {
+        marker.textContent = details.open ? '−' : '+';
+      });
+
+      details.appendChild(summary);
+
+      const childrenEl = document.createElement('div');
+      childrenEl.className = 'children';
+      children.forEach(child => {
+        const wrap = document.createElement('div');
+        wrap.className = 'node';
+        wrap.appendChild(createNodeElement(child, keys, depth + 1));
+        childrenEl.appendChild(wrap);
+      });
+      details.appendChild(childrenEl);
+      return details;
+    }
+
+    function restoreListStateFromUrl() {
+      filters = {
+        gene: normalizeFilter(urlParams.get('gene')),
+        info: normalizeFilter(urlParams.get('info')),
+        genStartLevel: normalizeStartGenerationFilter(urlParams.get('genStartLevel')),
+        genEndLevel: normalizeEndGenerationFilter(urlParams.get('genEndLevel')),
+        nom: normalizeFilter(urlParams.get('nom')),
+        prenom: normalizeFilter(urlParams.get('prenom')),
+        s: normalizeSexValue(urlParams.get('s')),
+        naissStart: normalizeYearFilter(urlParams.get('naissStart')),
+        naissEnd: normalizeYearFilter(urlParams.get('naissEnd'))
+      };
+    }
+
+    function buildBackLink() {
+      const params = new URLSearchParams(window.location.search);
+      const qs = params.toString();
+      backLinkEl.href = qs ? `index.html?${qs}` : 'index.html';
+    }
+
+    function renderTree() {
+      const result = buildGeneTreeData();
+      contentEl.innerHTML = '';
+      contentEl.classList.remove('empty');
+
+      if (result.error) {
+        contentEl.textContent = result.error;
+        contentEl.classList.add('empty');
+        metaEl.textContent = 'Erreur';
+        return;
+      }
+
+      if (!result.roots.length) {
+        contentEl.textContent = '(aucune donnee)';
+        contentEl.classList.add('empty');
+        metaEl.innerHTML = `<span class="accent">${result.count}</span> lignes visibles`;
+        return;
+      }
+
+      result.roots.forEach(node => {
+        const wrap = document.createElement('div');
+        wrap.className = 'node root';
+        wrap.appendChild(createNodeElement(node, result.keys, 0));
+        contentEl.appendChild(wrap);
+      });
+
+      metaEl.innerHTML = `<span class="accent">${result.count}</span> lignes visibles`;
+    }
+
+    function loadFromJs() {
+      if (typeof window.renderJs !== 'function') return false;
+      window.renderJs((headers, rows) => {
+        dataset = { headers, rows };
+        restoreListStateFromUrl();
+        buildBackLink();
+        renderTree();
+      });
+      return true;
+    }
+
+    if (!loadFromJs()) {
+      contentEl.textContent = 'Impossible de charger Qui.js.';
+      metaEl.textContent = 'Erreur de chargement';
+      buildBackLink();
+    }
+  </script>
+</body>
+</html>

@@ -10,9 +10,13 @@
     th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
     th { background: #f3f3f3; }
     button { min-height: 34px; padding: 0.35rem 0.6rem; }
+    .icon-link { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid #ccc; border-radius: 6px; background: #fff; vertical-align: middle; }
+    .icon-link img { width: 20px; height: 20px; display: block; }
     @media (max-width: 768px) {
       body { margin: 0.9rem; }
       button { min-height: 48px; padding: 0.6rem 0.9rem; font-size: 1rem; }
+      .icon-link { width: 48px; height: 48px; }
+      .icon-link img { width: 24px; height: 24px; }
       th, td { padding: 0.55rem 0.45rem; }
     }
   </style>
@@ -20,7 +24,9 @@
 <body>
   <h1>Détail (vue)</h1>
   <div id="status">Chargement...</div>
-  <button id="back-to-list-btn">Revenir à la liste</button>
+  <a id="close-btn" class="icon-link" href="#" title="Fermer" aria-label="Fermer">
+    <img src="cancel.svg" alt="Fermer" />
+  </a>
   <button id="go-parent-btn" disabled>Aller à parent</button>
   <button id="go-spouse-btn" disabled>Aller à conjoint</button>
   <button id="go-first-child-btn" disabled>Aller à 1er enfant</button>
@@ -36,7 +42,7 @@
     const params = new URLSearchParams(window.location.search);
     const requestedId = params.get('id');
     const statusEl = document.getElementById('status');
-    const backToListBtn = document.getElementById('back-to-list-btn');
+    const closeBtn = document.getElementById('close-btn');
     const traceEl = document.getElementById('trace');
     const goParentBtn = document.getElementById('go-parent-btn');
     const goSpouseBtn = document.getElementById('go-spouse-btn');
@@ -276,13 +282,6 @@
       return 'qui.csv';
     }
 
-    function getListUrlFromCurrentParams() {
-      const listParams = new URLSearchParams(window.location.search);
-      listParams.delete('id');
-      const qs = listParams.toString();
-      return qs ? `index.html?${qs}` : 'index.html';
-    }
-
     function loadFromJs() {
       if (typeof window.renderJs !== 'function') return false;
       statusEl.textContent = 'Chargement depuis Qui.js...';
@@ -311,8 +310,14 @@
     goFirstChildBtn.addEventListener('click', goFirstChild);
     goNextSiblingBtn.addEventListener('click', () => goSibling(1));
     goPrevSiblingBtn.addEventListener('click', () => goSibling(-1));
-    backToListBtn.addEventListener('click', () => {
-      window.location.href = getListUrlFromCurrentParams();
+    closeBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      window.close();
+      setTimeout(() => {
+        if (!window.closed) {
+          statusEl.textContent = 'Fermeture refusee par le navigateur.';
+        }
+      }, 150);
     });
   </script>
 </body>

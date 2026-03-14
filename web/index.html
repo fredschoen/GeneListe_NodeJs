@@ -24,7 +24,7 @@
 <body>
   <h1>Liste des entrées (vue)</h1>
   <div id="status">Chargement...</div>
-  <button id="synthese-btn" disabled>Synthese</button>
+  <button id="ListeHiera-btn" disabled>Vue Hiérarchique</button>
   <div style="margin:0.6rem 0; display:flex; gap:0.5rem; flex-wrap:wrap;">
     <input id="filter-gene" type="text" placeholder="Filtre Gene (contient)" />
     <input id="filter-info" type="text" placeholder="Filtre Info (contient)" />
@@ -62,7 +62,7 @@
   <script src="Qui.js"></script>
   <script>
     const statusEl = document.getElementById('status');
-    const syntheseBtn = document.getElementById('synthese-btn');
+    const ListeHieraBtn = document.getElementById('ListeHiera-btn');
     const filterGeneInput = document.getElementById('filter-gene');
     const filterInfoInput = document.getElementById('filter-info');
     const filterGenStartLevelInput = document.getElementById('filter-gen-startLevel');
@@ -189,6 +189,8 @@
             params.set('id', row[idKey]);
             const link = document.createElement('a');
             link.href = `vQuiDetail.html?${params.toString()}`;
+            link.target = '_blank';
+            link.rel = 'noopener';
             link.textContent = row[h] ?? '';
             td.appendChild(link);
           } else {
@@ -335,7 +337,7 @@
           render(dataset.headers, dataset.rows);
           syncListStateInUrl();
           statusEl.textContent = msg;
-          syntheseBtn.disabled = false;
+          ListeHieraBtn.disabled = false;
           trace(`CSV: ${dataset.rows.length} lignes reçues`);
         })
         .catch(err => {
@@ -387,7 +389,7 @@
         render(dataset.headers, dataset.rows);
         syncListStateInUrl();
         statusEl.textContent = 'Affiché depuis Qui.js';
-        syntheseBtn.disabled = false;
+        ListeHieraBtn.disabled = false;
       });
       return true;
     }
@@ -428,7 +430,7 @@
         s: findKey('s'),
         naissAaaa: findKey('naiss_aaaa'),
       };
-      if (!keys.gene) return 'Impossible de generer la synthese: colonne Gene absente.';
+      if (!keys.gene) return 'Impossible de generer la ListeHiera: colonne Gene absente.';
 
       const root = { token: null, row: null, children: new Map() };
       const sorted = [...dataset.rows]
@@ -477,52 +479,23 @@
       return lines.join('\n');
     }
 
-    function openSynthese() {
+    function openListeHiera() {
       if (!dataset.rows.length) {
-        statusEl.textContent = 'Synthese impossible: aucune donnee.';
+        statusEl.textContent = 'ListeHiera impossible: aucune donnee.';
         return;
       }
-      const content = buildGeneTreeText();
-      const listUrl = window.location.href;
-      const html = `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Synthese</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 1rem; }
-    pre { white-space: pre; overflow: auto; border: 1px solid #ccc; padding: 0.75rem; }
-    a { display: inline-block; margin-bottom: 0.8rem; }
-  </style>
-</head>
-<body>
-  <a href="${escapeHtml(listUrl)}">Retour à la liste</a>
-  <pre>${escapeHtml(content)}</pre>
-</body>
-</html>`;
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      window.location.href = url;
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+      const params = buildListStateParams();
+      const qs = params.toString();
+      window.location.href = qs ? `listeHiera.html?${qs}` : 'listeHiera.html';
     }
 
     setupFilters();
-    syntheseBtn.addEventListener('click', openSynthese);
+    ListeHieraBtn.addEventListener('click', openListeHiera);
     if (!loadFromJs()) {
       loadData();
     }
   </script>
 </body>
 </html>
-
 
 
